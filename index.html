@@ -96,7 +96,7 @@
       </div>
       <div class="badges">
         <span><b>0</b> installs</span><span><b>0</b> assets required</span>
-        <span><b>23</b> node types</span><span><b>3</b> free APIs built in</span>
+        <span><b>32</b> node types</span><span><b>5</b> free APIs built in</span>
       </div>
       <div class="code-card">
 <span class="cm">// an entire game behaviour, as a Goodness script</span>
@@ -134,9 +134,13 @@
       <div class="feature"><div class="icon">🧩</div><h3>Tilemap levels</h3><p>Draw entire levels as strings of characters. Solid tiles collide automatically. The friendliest level format around.</p></div>
       <div class="feature"><div class="icon">✨</div><h3>Effects &amp; juice</h3><p>Tweens with 16 easings, a full particle system, screen shake, squash &amp; stretch — plus a WebAudio synth: sound with zero files.</p></div>
       <div class="feature"><div class="icon">🖼</div><h3>Procedural art library</h3><p>30+ built-in textures (hero, slime, ship, coin, torch…) — build and ship complete games without downloading a single asset.</p></div>
-      <div class="feature"><div class="icon">🌐</div><h3>Free APIs built in</h3><p>PokéAPI, Open Trivia DB and Open-Meteo — free, no keys — with caching, timeouts and offline-fallback patterns.</p></div>
+      <div class="feature"><div class="icon">🎞️</div><h3>Keyframe animation</h3><p>AnimationPlayer with property, colour and method-call tracks, easing, loops and queues — or one-line tweens for the quick wins.</p></div>
+      <div class="feature"><div class="icon">🧭</div><h3>Pathfinding enemies</h3><p>NavigationRegion2D bakes your tilemap into a nav grid; NavigationAgent2D walks bodies along it. Add RayCast2D eyes and the hunt is on.</p></div>
+      <div class="feature"><div class="icon">🏔️</div><h3>Depth without work</h3><p>Parallax backgrounds with one-image endless horizons, y-sorted top-down depth, canvas layers for HUDs.</p></div>
+      <div class="feature"><div class="icon">💡</div><h3>Light & mood</h3><p>CanvasModulate for night and weather, PointLight2D torches that flicker and pulse — atmosphere without shaders.</p></div>
+      <div class="feature"><div class="icon">🌐</div><h3>Free APIs built in</h3><p>PokéAPI, Open Trivia DB, Open-Meteo, the Art Institute of Chicago and Datamuse — free, no keys — with caching, timeouts and offline fallbacks.</p></div>
       <div class="feature"><div class="icon">💾</div><h3>Publish anywhere</h3><p>A project is one JSON file. Run it from the repo, bundle it to a single .js + html, or drop it on any static host.</p></div>
-      <div class="feature"><div class="icon">📚</div><h3>Taught, not just documented</h3><p>Interactive in-editor lessons that watch your moves and auto-advance, a runnable-snippet API panel, and a 10-chapter docs book.</p></div>
+      <div class="feature"><div class="icon">📚</div><h3>Taught, not just documented</h3><p>Interactive in-editor lessons that watch your moves and auto-advance, a runnable-snippet API panel, and a 13-chapter docs book.</p></div>
     </div>
   </div>
 </section>
@@ -145,9 +149,9 @@
 <section class="api-band">
   <div class="wrap">
     <h2>The internet is your <span>content pipeline</span></h2>
-    <p class="section-sub">The engine ships with first-class wrappers for three complete,
+    <p class="section-sub">The engine ships with first-class wrappers for five complete,
     free, key-less public APIs — and an in-editor training panel that teaches you to use
-    them with live, runnable snippets.</p>
+    them with live, runnable snippets and ten graded tasks.</p>
     <div class="api-cards">
       <div class="api-card">
         <div class="free">FREE · NO KEY · 1025 CREATURES</div>
@@ -163,6 +167,16 @@
         <div class="free">FREE · NO KEY · WHOLE PLANET</div>
         <h3>🌦 Open-Meteo</h3>
         <p>Live weather for any coordinates. Rain particles when it actually rains on the player. <code>API.weather.current()</code></p>
+      </div>
+      <div class="api-card">
+        <div class="free">FREE · NO KEY · 120K ARTWORKS</div>
+        <h3>🖼️ Art Institute of Chicago</h3>
+        <p>Public-domain paintings <i>and</i> their images. <code>API.art.collection(6)</code> is a card game's art budget, solved.</p>
+      </div>
+      <div class="api-card">
+        <div class="free">FREE · NO KEY · 500K WORDS</div>
+        <h3>📚 Datamuse</h3>
+        <p>Rhymes, synonyms, definitions and syllables. <code>API.words.puzzle()</code> builds a word-game round, offline fallback included.</p>
       </div>
     </div>
     <p style="margin-top:22px"><a href="docs/index.html#08-free-apis.md">Read the free-API guide →</a></p>
@@ -185,6 +199,9 @@
       <div class="tut-row"><span class="n">08</span><a href="docs/index.html#08-free-apis.md">Free APIs — live data in your game</a><span class="t">12 min</span></div>
       <div class="tut-row"><span class="n">09</span><a href="docs/index.html#09-saving-and-publishing.md">Saving &amp; Publishing</a><span class="t">6 min</span></div>
       <div class="tut-row"><span class="n">10</span><a href="docs/index.html#10-architecture.md">Architecture — how it works inside</a><span class="t">10 min</span></div>
+      <div class="tut-row"><span class="n">11</span><a href="docs/index.html#11-animation.md">Animation — keyframes, tweens and juice</a><span class="t">10 min</span></div>
+      <div class="tut-row"><span class="n">12</span><a href="docs/index.html#12-navigation.md">Navigation — enemies that hunt you</a><span class="t">12 min</span></div>
+      <div class="tut-row"><span class="n">13</span><a href="docs/index.html#13-world-layers.md">World Layers — parallax and depth</a><span class="t">8 min</span></div>
       <div class="tut-row"><span class="n">++</span><a href="docs/index.html#api-reference.md">Full API Reference (auto-generated from the engine)</a><span class="t">reference</span></div>
     </div>
   </div>
@@ -199,7 +216,7 @@
       <a href="tests.html">Tests</a>
       <a href="https://github.com/goodness1202/goodness">GitHub</a>
     </div>
-    <p style="margin-top:14px">Goodness Engine v0.1.0 — MIT license. The floating background
+    <p style="margin-top:14px">Goodness Engine v0.2.0 — MIT license. The floating background
     on this page is rendered by the engine itself, using its own procedural art.</p>
   </div>
 </footer>

@@ -57,6 +57,7 @@
       return new Vector2(this.x * c - this.y * s, this.x * s + this.y * c);
     }
     copy() { return new Vector2(this.x, this.y); }
+    clone() { return this.copy(); }
     equals(o) { return this.x === o.x && this.y === o.y; }
 
     /* constants */
@@ -116,6 +117,7 @@
     }
     grow(by) { return new Rect2(this.pos.x - by, this.pos.y - by, this.size.x + by * 2, this.size.y + by * 2); }
     copy() { return new Rect2(this.pos.x, this.pos.y, this.size.x, this.size.y); }
+    clone() { return this.copy(); }
     toString() { return `Rect2(${round2(this.x)}, ${round2(this.y)}, ${round2(this.w)}, ${round2(this.h)})`; }
   }
 
@@ -130,6 +132,9 @@
     lighten(f) { return this.lerp(new Color(1, 1, 1, this.a), f); }
     darken(f) { return this.lerp(new Color(0, 0, 0, this.a), f); }
     with_alpha(a) { return new Color(this.r, this.g, this.b, a); }
+    copy() { return new Color(this.r, this.g, this.b, this.a); }
+    clone() { return this.copy(); }
+    equals(o) { return !!o && this.r === o.r && this.g === o.g && this.b === o.b && this.a === o.a; }
     to_css() {
       const c = (v) => clamp(Math.round(v * 255), 0, 255);
       return `rgba(${c(this.r)}, ${c(this.g)}, ${c(this.b)}, ${round2(this.a)})`;
@@ -788,6 +793,7 @@
       this._scale = new Vector2(1, 1);
       this.z_index = 0;
       this.visible = true;
+      this.y_sort_enabled = false;   // sort children by world Y (top-down depth)
       this._dirty = true;
       this._world = { x: 0, y: 0, rot: 0, sx: 1, sy: 1 };
     }
@@ -803,6 +809,7 @@
         { path: 'rotation', type: 'number', doc: 'Rotation in degrees.' },
         { path: 'scale', type: 'vector2', doc: 'Scale (1,1 = normal).' },
         { path: 'z_index', type: 'number', doc: 'Draw order. Higher draws on top.' },
+        { path: 'y_sort_enabled', type: 'bool', doc: 'Paint children front-to-back by their Y (top-down games).' },
         { path: 'visible', type: 'bool', doc: 'Hide or show this branch.' },
       ],
       methods: [
@@ -940,6 +947,7 @@
       this._tweens = new Set();
       this._cameras = [];
       this._canvas_layers = [];
+      this._modulates = [];
       this._active_camera = null;
 
       this.physics = new GE.PhysicsServer(this, options.physics || {});
@@ -960,6 +968,8 @@
       this.current_scene_name = name;
       if (node) {
         this.root.add_child(node, true);
+        /* wire the connections saved in the scene file before _ready runs */
+        if (GE.SceneBuilder && GE.SceneBuilder.connect_scene) GE.SceneBuilder.connect_scene(node);
         node._enter_tree_internal();
       }
       this.signals.scene_changed.emit(name);
@@ -1030,6 +1040,7 @@
       const walk = (n) => {
         if (n instanceof GE.Camera2D) this._cameras.push(n);
         if (n instanceof GE.CanvasLayer) this._canvas_layers.push(n);
+        if (GE.CanvasModulate && n instanceof GE.CanvasModulate) { n._is_modulate = true; this._modulates.push(n); }
         this.physics._register(n);
         for (const g of n._groups) this._add_to_group(g, n);
         for (const c of n.children) walk(c);
@@ -1041,6 +1052,7 @@
       const walk = (n) => {
         const ci = this._cameras.indexOf(n); if (ci >= 0) this._cameras.splice(ci, 1);
         const li = this._canvas_layers.indexOf(n); if (li >= 0) this._canvas_layers.splice(li, 1);
+        const mi = (this._modulates || []).indexOf(n); if (mi >= 0) this._modulates.splice(mi, 1);
         this.physics._unregister(n);
         for (const c of n.children) walk(c);
       };
@@ -1212,6 +1224,8 @@
 
     async start() {
       const project = this.options.project;
+      /* project-wide singletons come up before the first scene */
+      if (GE.Autoloads) await GE.Autoloads.boot(project, this.tree);
       if (project && project.scenes) {
         const main = project.main_scene || Object.keys(project.scenes)[0];
         if (main && project.scenes[main]) {
@@ -1234,6 +1248,7 @@
     stop() {
       this.running = false;
       this._destroyed = true;
+      if (GE.Autoloads) GE.Autoloads.clear(this.tree);
       if (this._raf_id !== null && typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(this._raf_id);
         this._raf_id = null;
@@ -1328,6 +1343,12 @@
 /* ==========================================================================
    Goodness Engine — core/renderer.js
    Canvas2D renderer: world pass (camera transform) + canvas layers (UI).
+
+   Every drawable node is drawn with its own world transform applied
+   (translate → rotate → scale), so children of a rotated parent inherit the
+   rotation exactly like Godot's CanvasItem transforms do. Depth sorting is
+   done per (z_index, paint order) and, when a node sets `y_sort_enabled` (or
+   is a YSort node), its children are sorted by their world Y instead.
    ========================================================================== */
 (function (GE) {
   'use strict';
@@ -1337,6 +1358,8 @@
       this.engine = engine;
       this.ctx = engine.ctx;
       this._items = [];
+      this._lights = [];
+      this.last_camera = { x: engine.size.w / 2, y: engine.size.h / 2, zoom: 1 };
     }
 
     draw(tree) {
@@ -1348,17 +1371,26 @@
       ctx.fillStyle = tree.background || '#10131f';
       ctx.fillRect(0, 0, w, h);
 
+      /* ---- background canvas layers (layer < 0, screen space) ---- */
+      const layers = [...tree._canvas_layers].sort((a, b) => (a.layer || 0) - (b.layer || 0));
+      for (const layer of layers) {
+        if (layer.visible === false || (layer.layer || 0) >= 0) continue;
+        if (typeof layer._stage_parallax === 'function') layer._stage_parallax(this.last_camera, { w, h });
+        this._draw_pass(layer, (layer.layer || 0) * 0.01, ctx, true);
+      }
+
       /* ---- world pass ---- */
       const cam = tree.active_camera;
       let camX = w / 2, camY = h / 2, zoom = 1, rot = 0, shakeX = 0, shakeY = 0;
       if (cam) {
         cam._update_smooth(w, h);
         const c = cam.get_viewport_center(w, h);
-        camX = c.x; camY = c.y; zoom = cam.zoom;
+        camX = c.x; camY = c.y; zoom = cam.zoom || 1;
         rot = cam.rotation;
         const sk = cam._shake();
         shakeX = sk.x; shakeY = sk.y;
       }
+      this.last_camera = { x: camX, y: camY, zoom };
       ctx.save();
       ctx.translate(w / 2 + shakeX, h / 2 + shakeY);
       if (rot) ctx.rotate(rot * Math.PI / 180);
@@ -1368,34 +1400,111 @@
       /* visible world rect for culling (tilemaps) */
       this.view_rect = { x: camX - w / 2 / zoom, y: camY - h / 2 / zoom, w: w / zoom, h: h / zoom };
 
-      this._items.length = 0;
-      if (tree.current_scene) this._collect(tree.current_scene, 0);
-      this._items.sort((a, b) => a.z - b.z || a.oi - b.oi);
-      for (const it of this._items) it.node._draw(ctx, this);
+      this._draw_pass(tree.current_scene, 0, ctx, false);
+
+      /* CanvasModulate tints everything the world pass drew (HUD stays clean) */
+      const modulates = (tree._modulates || []).filter((m) => m.visible !== false && m.color && m.color.a > 0);
+      if (modulates) {
+        for (const m of modulates) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'multiply';
+          ctx.fillStyle = (m.color instanceof GE.Color ? m.color : GE.Color.from(m.color)).to_css();
+          const r = this.view_rect || { x: camX - w / 2 / zoom, y: camY - h / 2 / zoom, w: w / zoom, h: h / zoom };
+          ctx.fillRect(r.x, r.y, r.w, r.h);
+          ctx.restore();
+        }
+      }
       ctx.restore();
 
-      /* ---- canvas layer pass (screen space) ---- */
-      for (const layer of tree._canvas_layers) {
-        if (!layer.visible) continue;
-        this._items.length = 0;
-        this._collect(layer, layer.layer * 0.01, true);
-        this._items.sort((a, b) => a.z - b.z || a.oi - b.oi);
-        for (const it of this._items) it.node._draw(ctx, this);
+      /* ---- canvas layer pass (screen space, sorted by `layer`) ---- */
+      for (const layer of layers) {
+        if (layer.visible === false || (layer.layer || 0) < 0) continue;
+        /* ParallaxBackgrounds re-stage their layers every frame */
+        if (typeof layer._stage_parallax === 'function') layer._stage_parallax(this.last_camera, { w, h });
+        this._draw_pass(layer, (layer.layer || 0) * 0.01, ctx, true);
+      }
+    }
+
+    /** collect + sort + draw one subtree, applying each node's transform. */
+    _draw_pass(root, base_z, ctx, screen_space) {
+      if (!root || root._freed || root.visible === false) return;
+      this._items.length = 0;
+      this._lights.length = 0;
+      this._collect(root, base_z, screen_space);
+      this._items.sort((a, b) => a.z - b.z || a.oi - b.oi);
+      for (const it of this._items) {
+        const node = it.node;
+        ctx.save();
+        if (node instanceof GE.Node2D) this.apply_transform(ctx, node);
+        if (node.modulate && typeof node.modulate.alpha === 'number' && node.modulate.alpha < 1) {
+          ctx.globalAlpha = ctx.globalAlpha * node.modulate.alpha;
+        }
+        try { node._draw(ctx, this); }
+        catch (e) { GE.Logger.error(`${node}._draw() failed: ${e.message}`); }
+        ctx.restore();
+      }
+      /* lights paint after the geometry they illuminate (additive glow) */
+      if (this._lights.length) {
+        for (const it of this._lights) {
+          const node = it.node;
+          if (node.enabled === false) continue;
+          ctx.save();
+          ctx.globalCompositeOperation = node.blend_mode === 'mix' ? 'source-over' : 'lighter';
+          if (node instanceof GE.Node2D) this.apply_transform(ctx, node);
+          try { node._draw(ctx, this); }
+          catch (e) { GE.Logger.error(`${node}._draw() failed: ${e.message}`); }
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.restore();
+        }
       }
     }
 
     /** Recursively collect drawable nodes with their world transforms. */
     _collect(node, z, screen_space = false, oi = { i: 0 }) {
       if (node._freed || node.visible === false) return;
-      let z_here = z;
-      let oi_here = oi.i++;
+      const z_here = z;
+      const oi_here = oi.i++;
       if (node instanceof GE.Node2D) {
         node._update_world();
-        if (node._draw_this && node._draw_this()) {
+        if (node._is_light) {
+          if (node._draw_this ? node._draw_this() : true) this._lights.push({ node, z: z_here, oi: oi_here });
+        } else if (node._draw_this && node._draw_this()) {
           this._items.push({ node, z: z_here + (node.z_index || 0), oi: oi_here });
         }
+      } else if (node._is_modulate) {
+        /* handled by the world-pass tint — nothing to collect */
       }
-      for (const c of node.children) this._collect(c, z + (node.z_index || 0), screen_space, oi);
+      const child_z = z + (node.z_index || 0);
+
+      /* Parallax mirroring: draw the subtree once per repeat offset. */
+      if (GE.ParallaxLayer && node instanceof GE.ParallaxLayer &&
+          node._mirror_shifts && node._mirror_shifts.length > 1) {
+        const shifts = node._mirror_shifts;
+        const last = shifts[shifts.length - 1];
+        for (const s of shifts) {
+          node._parallax_shift = s;
+          node._dirty = true;
+          node._update_world();
+          for (const c of node.children) this._collect(c, child_z, screen_space, oi);
+        }
+        node._parallax_shift = GE.Vector2.ZERO;
+        node._dirty = true;
+        void last;
+        return;
+      }
+
+      /* Y-sorting: children paint back-to-front ordered by world Y. */
+      if (node.y_sort_enabled || (GE.YSort && node instanceof GE.YSort)) {
+        const kids = node.children.slice();
+        kids.sort((a, b) => {
+          const ay = a instanceof GE.Node2D ? a.global_position.y : -Infinity;
+          const by = b instanceof GE.Node2D ? b.global_position.y : -Infinity;
+          return ay - by;
+        });
+        kids.forEach((c, i) => this._collect(c, child_z + (i + 1) * 0.0001, screen_space, oi));
+        return;
+      }
+      for (const c of node.children) this._collect(c, child_z, screen_space, oi);
     }
 
     /* helpers for nodes */
@@ -1967,6 +2076,7 @@
       SFX: GE.SFX,
       Music: GE.Music,
       Save: GE.Save,
+      Autoloads: GE.Autoloads,
       Physics: null, // per-tree; patched at attach time via closure param
       Vector2: GE.Vector2,
       Color: GE.Color,
@@ -2153,6 +2263,102 @@
 })(globalThis.GE);
 
 /* ==========================================================================
+   Goodness Engine — core/autoloads.js
+   Project-wide singletons ("autoloads" in Godot): one instance of a node
+   that every scene can reach. Perfect for score, settings, music, save
+   state — anything that must survive a scene change.
+
+   Declare them in the project file:
+
+     {
+       "autoloads": {
+         "Score": { "script": "{ extends: 'Node', points: 0, add(n){ this.points += n; } }" },
+         "Music": { "type": "AudioPlayer", "props": { ... } }
+       }
+     }
+
+   …then use them anywhere, from any script or node:
+
+     Autoloads.Score.add(10);          // injected into every script
+     this.get_node('/root/Score')      // …or as a plain node path
+     Goodness.autoload('Score')        // …or through the API object
+   ========================================================================== */
+(function (GE) {
+  'use strict';
+
+  const { Logger } = GE;
+
+  const registry = new Map();
+  let booted_project = null;
+
+  const Autoloads = {
+    /** Fetch an autoload node by name. */
+    get(name) { return registry.get(name) || null; },
+    has(name) { return registry.has(name); },
+    /** Every autoload node, in declaration order. */
+    all() { return [...registry.values()]; },
+    names() { return [...registry.keys()]; },
+    get size() { return registry.size; },
+
+    /** Instantiate the project's autoloads under the tree root. */
+    async boot(project, tree) {
+      this.clear(tree);
+      booted_project = project;
+      const defs = (project && project.autoloads) || {};
+      const names = Object.keys(defs);
+      if (!names.length) return this;
+      for (const name of names) {
+        const def = defs[name] || {};
+        let node = null;
+        try {
+          /* a whole scene as an autoload */
+          if (def.scene && project.scenes && project.scenes[def.scene]) {
+            node = await GE.SceneBuilder.build(project.scenes[def.scene], project, tree);
+          }
+          if (!node) {
+            const cls = GE.Classes.get(def.type || 'Node') || GE.Node;
+            node = new cls();
+          }
+          node.name = name;
+          if (def.props) GE.SceneBuilder._apply_props(node, def.props, project);
+          if (def.script) {
+            node._script_name = def.script_name || `autoload:${name}`;
+            GE.Scripts.attach_source(node, def.script);
+          }
+          tree.root.add_child(node);
+          if (typeof node._enter_tree_internal === 'function') node._enter_tree_internal();
+          registry.set(name, node);
+          /* expose as a property: Autoloads.Score */
+          this[name] = node;
+        } catch (e) {
+          Logger.error(`Autoload '${name}' failed: ${e.message}`);
+        }
+      }
+      Logger.info(`Autoloads ready: ${this.names().join(', ')}.`);
+      return this;
+    },
+
+    /** Remove every autoload (called when the engine stops / restarts). */
+    clear(tree = null) {
+      for (const [name, node] of registry) {
+        try {
+          if (node.parent) node.parent.remove_child(node);
+          if (tree) tree._free_subtree(node);
+          node._freed = true;
+        } catch (e) { /* already gone */ }
+        delete this[name];
+      }
+      registry.clear();
+      booted_project = null;
+    },
+
+    get project() { return booted_project; },
+  };
+
+  GE.Autoloads = Autoloads;
+})(globalThis.GE);
+
+/* ==========================================================================
    Goodness Engine — core/tween.js
    Godot-style chained tweens:
      const t = node.create_tween();
@@ -2330,11 +2536,21 @@
     }
     const last = parts[parts.length - 1];
     if (v === null || v === undefined) return;
-    v[last] = value;
+    /* keep engine value types typed on the way out, exactly like the setter would */
+    const current = v[last];
+    if (current instanceof GE.Vector2) v[last] = GE.Vector2.from(value);
+    else if (current instanceof GE.Color) v[last] = GE.Color.from(value);
+    else if (typeof current === 'number' && typeof value !== 'number') v[last] = Number(value) || 0;
+    else v[last] = value;
   }
   function clone_value(v) {
-    if (v instanceof GE.Vector2) return v.copy();
-    if (v instanceof GE.Color) return v.copy();
+    if (typeof v === 'object' && v !== null) {
+      if (typeof v.copy === 'function') return v.copy();
+      if (typeof v.clone === 'function') return v.clone();
+      if (Array.isArray(v)) return v.slice();
+      if (v instanceof GE.Vector2) return new GE.Vector2(v.x, v.y);
+      if (v instanceof GE.Color) return new GE.Color(v.r, v.g, v.b, v.a);
+    }
     if (Array.isArray(v)) return v.slice();
     return v;
   }
@@ -3634,6 +3850,356 @@
 })(globalThis.GE);
 
 /* ==========================================================================
+   Goodness Engine — nodes/parallax.js
+   Scrolling backgrounds the easy way:
+
+       ParallaxBackground      a CanvasLayer that scrolls its ParallaxLayers
+         ParallaxLayer         motion_scale (0,0 = glued to the screen,
+                               1,1 = scrolls exactly with the camera)
+           Sprite              your art, as usual
+
+   motion_mirroring repeats a layer forever, so a 400 px hill image can fill
+   a 1280 px screen without seams.
+   ========================================================================== */
+(function (GE) {
+  'use strict';
+
+  const { CanvasLayer, Node2D, Vector2 } = GE;
+
+  class ParallaxLayer extends Node2D {
+    constructor() {
+      super();
+      this.motion_scale = new Vector2(1, 1);
+      this.motion_mirroring = new Vector2(0, 0);
+      this.motion_offset = new Vector2(0, 0);
+      this._parallax_origin = new Vector2();
+      this.scroll_offset = new Vector2();
+    }
+
+    static def = {
+      name: 'ParallaxLayer', icon: '🌄', kind: 'Visual', base: 'Node2D',
+      desc: 'A single layer of a scrolling background.',
+      props: [
+        { path: 'motion_scale', type: 'vector2', doc: '0 = glued to the screen, 1 = scrolls with the camera, 0.3 = far away.' },
+        { path: 'motion_mirroring', type: 'vector2', doc: 'Repeat the layer every N pixels (0 = no repeat).' },
+        { path: 'motion_offset', type: 'vector2', doc: 'Extra manual offset.' },
+        { path: 'position', type: 'vector2', doc: 'Position inside the layer.' },
+      ],
+    };
+
+    /** The layer's parent transform *is* the parallax origin (+ mirror repeat). */
+    _parent_world() {
+      const o = this._parallax_origin || Vector2.ZERO;
+      const s = this._parallax_shift || Vector2.ZERO;
+      return { x: o.x + s.x, y: o.y + s.y, rot: 0, sx: 1, sy: 1 };
+    }
+
+    /* Nothing to mirror by hand: the renderer re-draws this subtree once per
+       repeat when `_mirror_shifts` has more than one entry. */
+    get mirror_shifts() { return this._mirror_shifts || []; }
+  }
+
+  class ParallaxBackground extends CanvasLayer {
+    constructor() {
+      super();
+      this.layer = -1;                       // behind the world
+      this.scroll_scale = new Vector2(1, 1);
+      this.scroll_base_offset = new Vector2(0, 0);
+      this.scroll_ignore_camera_zoom = true;
+      this.scroll_offset = new Vector2(0, 0);
+      this.visible = true;
+      this.follow_viewport = true;
+    }
+
+    static def = {
+      name: 'ParallaxBackground', icon: '🏔️', kind: 'Visual', base: 'CanvasLayer',
+      desc: 'Draws ParallaxLayer children behind (or in front of) the world.',
+      props: [
+        { path: 'layer', type: 'number', doc: 'Negative draws behind the world, positive in front.' },
+        { path: 'scroll_scale', type: 'vector2', doc: 'Multiplies every child layer\'s motion_scale.' },
+        { path: 'scroll_base_offset', type: 'vector2', doc: 'Offset added to the whole background.' },
+        { path: 'scroll_ignore_camera_zoom', type: 'bool', doc: 'Keep the background stable when zooming.' },
+      ],
+      methods: [
+        { sig: 'scroll_offset', desc: 'Read-only current scroll offset (updated every frame).' },
+      ],
+    };
+
+    /** Called by the renderer every frame, before the layers are drawn.
+     *  Layer origin (in screen space) = viewport centre - camera * motion_scale. */
+    _stage_parallax(camera, view) {
+      const cam = camera || { x: 0, y: 0, zoom: 1 };
+      const view_w = (view && view.w) || 1280, view_h = (view && view.h) || 720;
+      const cx = view_w / 2, cy = view_h / 2;
+      const scale = this.scroll_scale || new Vector2(1, 1);
+      const layers = [];
+      (function collect(n) {
+        for (const c of n.children) {
+          if (c instanceof ParallaxLayer) layers.push(c);
+          else collect(c);
+        }
+      })(this);
+      for (const child of layers) {
+        const ms = child.motion_scale || new Vector2(1, 1);
+        const mirror = child.motion_mirroring || Vector2.ZERO;
+        const org = child._parallax_origin || (child._parallax_origin = new Vector2());
+        org.x = cx - cam.x * ms.x * scale.x + this.scroll_base_offset.x + (child.motion_offset ? child.motion_offset.x : 0);
+        org.y = cy - cam.y * ms.y * scale.y + this.scroll_base_offset.y + (child.motion_offset ? child.motion_offset.y : 0);
+
+        const shifts = [Vector2.ZERO];
+        if (mirror.x > 0) {
+          org.x = mod(org.x + mirror.x / 2, mirror.x) - mirror.x / 2;
+          const count = Math.min(8, Math.ceil(view_w / mirror.x) + 1);
+          for (let i = 1; i < count; i++) shifts.push(new Vector2(mirror.x * i, 0));
+        }
+        if (mirror.y > 0) {
+          org.y = mod(org.y + mirror.y / 2, mirror.y) - mirror.y / 2;
+          const base = shifts.slice();
+          const count = Math.min(8, Math.ceil(view_h / mirror.y) + 1);
+          for (let i = 1; i < count; i++) {
+            for (const s of base) shifts.push(new Vector2(s.x, mirror.y * i));
+          }
+        }
+        child._mirror_shifts = shifts;
+        child._parallax_shift = Vector2.ZERO;
+        child.scroll_offset = new Vector2(org.x, org.y);
+        /* the offset changes every frame — force a fresh world transform */
+        child._dirty = true;
+        for (const c of child.children) if (c._dirty !== undefined) c._dirty = true;
+      }
+      if (layers.length) this.scroll_offset = new Vector2(layers[layers.length - 1]._parallax_origin.x, layers[layers.length - 1]._parallax_origin.y);
+    }
+  }
+
+  function mod(a, n) { return ((a % n) + n) % n; }
+
+  /* YSort: a Node2D that paints its children front-to-back by world Y.
+     (Node2D.y_sort_enabled does the same on any node.) */
+  class YSort extends Node2D {
+    constructor() {
+      super();
+      this.y_sort_enabled = true;
+    }
+
+    static def = {
+      name: 'YSort', icon: '🪜', kind: 'Visual', base: 'Node2D',
+      desc: 'Draws children sorted by their Y position — instant top-down depth.',
+      props: [
+        { path: 'position', type: 'vector2', doc: 'Position in the world.' },
+        { path: 'y_sort_enabled', type: 'bool', doc: 'On by default for YSort.' },
+      ],
+    };
+  }
+
+  GE.ParallaxLayer = ParallaxLayer;
+  GE.ParallaxBackground = ParallaxBackground;
+  GE.YSort = YSort;
+  GE.Classes.register(ParallaxLayer);
+  GE.Classes.register(ParallaxBackground);
+  GE.Classes.register(YSort);
+})(typeof globalThis.GE !== 'undefined' ? globalThis.GE : (globalThis.GE = {}));
+
+/* ==========================================================================
+   Goodness Engine — nodes/lights.js
+   Mood in two nodes:
+
+       CanvasModulate     tints the whole world (night, sunset, dream)
+       PointLight2D       a soft radial glow: torches, lamps, magic, muzzle flash
+
+   No shadow maps, no shaders to write — lights are drawn with the canvas
+   `lighter` blend, so they stack, animate and tween like any other property:
+
+       const torch = get_node('Torch');
+       torch.create_tween().set_loops(0)
+         .tween_property(torch, 'energy', 1.3, 0.4).set_trans('sine_in_out')
+         .tween_property(torch, 'energy', 0.85, 0.4).set_trans('sine_in_out');
+
+       const night = get_node('Night');            // CanvasModulate
+       night.create_tween().tween_property(night, 'color', '#0b1030', 1.5);
+   ========================================================================== */
+(function (GE) {
+  'use strict';
+
+  const { Node, Node2D, Vector2, Color, Logger } = GE;
+
+  /** One shared radial-gradient texture per colour — cheap and pretty. */
+  const gradient_cache = new Map();
+  function radial_texture(size = 256) {
+    const key = 'radial:' + size;
+    if (gradient_cache.has(key)) return gradient_cache.get(key);
+    let tex = null;
+    if (typeof document !== 'undefined' && GE.ProceduralTextures && GE.ProceduralTextures.create_custom) {
+      tex = GE.ProceduralTextures.create_custom('light:radial', size, (ctx, s) => {
+        const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+        g.addColorStop(0.7, 'rgba(255,255,255,0.16)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, s, s);
+      });
+    }
+    gradient_cache.set(key, tex);
+    return tex;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* CanvasModulate — "make it night"                                    */
+  /* ------------------------------------------------------------------ */
+  class CanvasModulate extends Node {
+    constructor() {
+      super();
+      this.color = new Color(1, 1, 1, 1);
+      this.visible = true;
+      this.add_signal('color_changed');
+    }
+
+    static def = {
+      name: 'CanvasModulate', icon: '🌙', kind: 'Visual', base: 'Node',
+      desc: 'Tints the entire world at once — night, sunset, underwater, dream.',
+      props: [
+        { path: 'color', type: 'color', doc: 'Multiplied over every world pixel. #ffffff = off.' },
+        { path: 'visible', type: 'bool', doc: 'Turn the tint off without deleting the node.' },
+      ],
+      methods: [
+        { sig: 'set_color(color)', desc: 'Set the tint (accepts "#0b1030", Color, [r,g,b,a]).' },
+        { sig: 'fade_to(color, duration)', desc: 'Tween the tint over time.' },
+      ],
+      signals: [{ name: 'color_changed', args: ['color'], desc: 'The tint changed.' }],
+    };
+
+    set_color(c) {
+      this.color = c instanceof Color ? c : Color.from(c);
+      this.emit_signal('color_changed', this.color);
+      return this;
+    }
+
+    fade_to(c, duration = 1) {
+      const target = c instanceof Color ? c : Color.from(c);
+      this.create_tween().tween_property(this, 'color', target, duration);
+      return this;
+    }
+
+    get enabled() { return this.visible !== false && (this.color.a > 0) && !is_white(this.color); }
+  }
+
+  function is_white(c) {
+    return c && c.r > 0.999 && c.g > 0.999 && c.b > 0.999;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* PointLight2D — a soft radial glow                                   */
+  /* ------------------------------------------------------------------ */
+  class PointLight2D extends Node2D {
+    constructor() {
+      super();
+      this.color = new Color(1, 0.92, 0.7, 1);
+      this.energy = 1.2;
+      this.texture_scale = 2;        // world radius = texture_scale * 128px
+      this.blend_mode = 'add';       // 'add' (glow) | 'mix' (spotlight wash)
+      this.enabled = true;
+      this.texture = null;
+      this._is_light = true;
+    }
+
+    static def = {
+      name: 'PointLight2D', icon: '💡', kind: 'Effects', base: 'Node2D',
+      desc: 'A soft radial light — torches, lamps, explosions, magic, headlights.',
+      props: [
+        { path: 'color', type: 'color', doc: 'Light colour.' },
+        { path: 'energy', type: 'number', min: 0, step: 0.1, doc: 'Brightness. Animate it for flicker.' },
+        { path: 'texture_scale', type: 'number', min: 0.1, step: 0.1, doc: 'Size multiplier (2 ≈ 260 px across).' },
+        { path: 'blend_mode', type: 'enum', options: ['add', 'mix'], doc: 'add = glow on top, mix = replaces the area.' },
+        { path: 'enabled', type: 'bool', doc: 'Switch the light off.' },
+        { path: 'texture', type: 'texture', doc: 'Optional custom light shape (defaults to a soft circle).' },
+      ],
+      methods: [
+        { sig: 'flicker(amount)', desc: 'Randomize energy slightly — instant torch flicker.' },
+        { sig: 'pulse(speed, amount)', desc: 'Endless breathing glow.' },
+        { sig: 'radius', desc: 'Current world radius in pixels.' },
+      ],
+    };
+
+    get radius() { return 128 * (Number(this.texture_scale) || 1) * (this.scale.x || 1); }
+
+    set_color(c) { this.color = c instanceof Color ? c : Color.from(c); return this; }
+
+    flicker(amount = 0.15) {
+      this.energy = Math.max(0, this.energy + GE.randf_range(-amount, amount));
+      return this;
+    }
+
+    pulse(speed = 1, amount = 0.25) {
+      const base = this.energy;
+      this.create_tween().set_loops(0)
+        .tween_property(this, 'energy', base * (1 + amount), 0.5 / speed).set_trans('sine_in_out')
+        .tween_property(this, 'energy', base * (1 - amount * 0.4), 0.5 / speed).set_trans('sine_in_out');
+      return this;
+    }
+
+    _draw_this() { return this.enabled !== false; }
+
+    _draw(ctx) {
+      const tex = (this.texture && this.texture.image) ? this.texture : radial_texture(256);
+      const r = 128 * (Number(this.texture_scale) || 1);
+      const c = this.color instanceof Color ? this.color : Color.from(this.color || '#ffffff');
+      ctx.globalAlpha = Math.max(0, Math.min(1, (Number(this.energy) || 0) * (c.a === undefined ? 1 : c.a)));
+      ctx.globalCompositeOperation = this.blend_mode === 'mix' ? 'source-over' : 'lighter';
+      ctx.fillStyle = c.to_css();
+      if (tex && tex.image && typeof ctx.drawImage === 'function') {
+        /* draw the white gradient, then tint it with the light colour */
+        const tint = create_tinted(tex, c);
+        if (tint && tint.image) ctx.drawImage(tint.image, -r, -r, r * 2, r * 2);
+        else ctx.drawImage(tex.image, -r, -r, r * 2, r * 2);
+      } else {
+        const g = ctx.createRadialGradient ? ctx.createRadialGradient(0, 0, 0, 0, 0, r) : null;
+        if (g) {
+          g.addColorStop(0, c.to_css());
+          g.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = g;
+        }
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  /* Tint cache for the radial gradient (kept small: one per colour). */
+  const tint_cache = new Map();
+  function create_tinted(tex, color) {
+    if (typeof document === 'undefined' || !tex.image) return null;
+    const key = color.to_css();
+    if (tint_cache.has(key)) return tint_cache.get(key);
+    if (tint_cache.size > 24) tint_cache.clear();
+    try {
+      const size = tex.width || 256;
+      const cnv = document.createElement('canvas');
+      cnv.width = size; cnv.height = size;
+      const ctx = cnv.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(tex.image, 0, 0, size, size);
+      ctx.globalCompositeOperation = 'source-in';
+      ctx.fillStyle = color.to_css();
+      ctx.fillRect(0, 0, size, size);
+      const out = new GE.Assets.Texture(cnv, size, size, 'light:' + key);
+      tint_cache.set(key, out);
+      return out;
+    } catch (e) {
+      Logger.warn('PointLight2D could not tint its texture: ' + e.message);
+      return null;
+    }
+  }
+
+  GE.CanvasModulate = CanvasModulate;
+  GE.PointLight2D = PointLight2D;
+  GE.Classes.register(CanvasModulate);
+  GE.Classes.register(PointLight2D);
+})(typeof globalThis.GE !== 'undefined' ? globalThis.GE : (globalThis.GE = {}));
+
+/* ==========================================================================
    Goodness Engine — nodes/tilemap.js
    TileMap with a built-in procedural tileset. Levels are written as
    arrays of strings — the friendliest level format around:
@@ -4457,6 +5023,1128 @@
 })(globalThis.GE);
 
 /* ==========================================================================
+   Goodness Engine — nodes/animation_player.js
+   AnimationPlayer + Animation: keyframe animation without a single extra
+   library. Property tracks (numbers, vectors, colors, booleans), method
+   tracks, loop modes, speed scale, queues — the Godot experience, in ~350
+   friendly lines.
+
+       anim.play('bounce')            # name only
+       anim.play('bounce', {speed: 2, from_end: true})
+       anim.queue('idle')             # plays right after
+
+   Animations can be authored in the editor (Inspector → AnimationPlayer)
+   or built at runtime:
+
+       anim.make('bounce', {
+         length: 1.0,
+         loop: 'pingpong',
+         tracks: [
+           { node: '.',      property: 'position.y', keys: [[0, 0], [0.4, -60, 'back_out'], [1, 0]] },
+           { node: 'Sprite', property: 'modulate',   keys: [[0, '#ffffff'], [0.5, '#ff5a5f'], [1, '#ffffff']] },
+           { node: '.',      method: 'squash',       at: 0.4, args: [2] },
+         ],
+       });
+   ========================================================================== */
+(function (GE) {
+  'use strict';
+
+  const { Node, Node2D, Vector2, Color, Logger } = GE;
+
+  const EASE_ALIASES = {
+    ease_in: 'quad_in', ease_out: 'quad_out', ease_in_out: 'cubic_in_out',
+    smooth: 'sine_in_out', smoothstep: 'sine_in_out', in: 'quad_in', out: 'quad_out',
+    in_out: 'cubic_in_out', spring: 'elastic_out', out_back: 'back_out',
+    in_back: 'back_in', out_bounce: 'bounce_out', ease: 'sine_in_out',
+    ease_out_elastic: 'elastic_out',
+  };
+
+  function ease_name(name) {
+    if (!name) return 'linear';
+    const key = EASE_ALIASES[name] || String(name);
+    return GE.Ease && GE.Ease[key] ? key : 'linear';
+  }
+
+  function is_color_like(v) {
+    if (v instanceof Color) return true;
+    if (typeof v === 'string') return /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim());
+    if (Array.isArray(v)) return false;
+    if (v && typeof v === 'object' && v.r !== undefined) return true;
+    return false;
+  }
+
+  function to_vec(v) {
+    if (v instanceof Vector2) return v;
+    if (Array.isArray(v)) return new Vector2(Number(v[0]) || 0, Number(v[1]) || 0);
+    if (v && typeof v === 'object' && v.x !== undefined) return new Vector2(v.x, v.y);
+    if (typeof v === 'number') return new Vector2(v, v);
+    return new Vector2();
+  }
+
+  function blend_value(a, b, t) {
+    if (typeof a === 'number' && typeof b === 'number') return a + (b - a) * t;
+    if (a instanceof Vector2 || b instanceof Vector2) return to_vec(a).lerp(to_vec(b), t);
+    if (a instanceof Color || b instanceof Color) return Color.from(a).lerp(Color.from(b), t);
+    if (typeof a === 'boolean' || typeof b === 'boolean') return t >= 1 ? b : a;
+    if (typeof a === 'string' && typeof b === 'string' && is_color_like(a) && is_color_like(b)) {
+      return Color.from(a).lerp(Color.from(b), t);
+    }
+    if (Array.isArray(a) && Array.isArray(b)) return to_vec(a).lerp(to_vec(b), t);
+    return t >= 1 ? b : a;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Animation — one list of tracks with a length and a loop mode.       */
+  /* ------------------------------------------------------------------ */
+  class Animation {
+    constructor(name = 'animation') {
+      this.name = name;
+      this.length = 1.0;
+      this.loop_mode = 'none';       // 'none' | 'linear' | 'pingpong'
+      this.tracks = [];
+    }
+
+    /** add_track({node, property, keys:[[t, value, ease], ...], interp, ease}) */
+    add_track(def = {}) {
+      const track = {
+        node: def.node || '.',
+        property: def.property,
+        interp: def.interp || 'linear',            // 'linear' | 'nearest' | 'cubic'
+        ease: def.ease || null,
+        keys: (def.keys || []).map((k) => (Array.isArray(k)
+          ? { t: Number(k[0]) || 0, value: k[1], ease: k[2] || null }
+          : { t: Number(k.at ?? k.t) || 0, value: k.value, ease: k.ease || null })),
+      };
+      track.keys.sort((a, b) => a.t - b.t);
+      if (!track.property) { Logger.warn('Animation.add_track needs a `property`.'); return null; }
+      this.tracks.push(track);
+      this._sync_length();
+      return track;
+    }
+
+    /** add_method_track({node, method, at|keys, args}) — call a method at a time. */
+    add_method_track(def = {}) {
+      const keys = def.keys
+        ? def.keys.map((k) => (Array.isArray(k) ? { t: Number(k[0]) || 0, args: k[1] } : { t: Number(k.at) || 0, args: k.args }))
+        : [{ t: Number(def.at ?? def.time) || 0, args: def.args }];
+      keys.sort((a, b) => a.t - b.t);
+      const track = { node: def.node || '.', method: def.method, args: def.args || [], keys, method_track: true };
+      this.tracks.push(track);
+      this._sync_length();
+      return track;
+    }
+
+    _sync_length() {
+      let max = 0;
+      for (const t of this.tracks) {
+        for (const k of t.keys) max = Math.max(max, k.t);
+      }
+      if (max > 0 && (this._auto_length !== false)) this.length = Math.max(this.length, max);
+    }
+
+    get track_count() { return this.tracks.length; }
+
+    /** Sample one track at `time` (clamped) and return the value. */
+    sample_track(track, time) {
+      const keys = track.keys;
+      if (!keys.length) return undefined;
+      if (keys.length === 1 || time <= keys[0].t) return keys[0].value;
+      const last = keys[keys.length - 1];
+      if (time >= last.t) return last.value;
+      let i = 0;
+      while (i < keys.length - 1 && keys[i + 1].t <= time) i++;
+      const a = keys[i], b = keys[i + 1];
+      /* 'nearest' is a hold/step track in Godot: keep the previous key's value
+         until the next key is reached. */
+      if (track.interp === 'nearest') return a.value;
+      const span = b.t - a.t || 1e-6;
+      let t = GE.math.clamp((time - a.t) / span, 0, 1);
+      const ease = ease_name(a.ease || track.ease || 'linear');
+      t = GE.Ease[ease](t);
+      return blend_value(a.value, b.value, t);
+    }
+
+    to_dict() {
+      return {
+        length: this.length,
+        loop: this.loop_mode,
+        tracks: this.tracks.map((t) => (t.method_track
+          ? { node: t.node, method: t.method, at: t.keys[0] && t.keys[0].t, args: t.args }
+          : { node: t.node, property: t.property, interp: t.interp, ease: t.ease, keys: t.keys.map((k) => (k.ease ? [k.t, k.value, k.ease] : [k.t, k.value])) })),
+      };
+    }
+
+    /** Animation.from({length, loop, tracks}) — the shape used in project JSON. */
+    static from(def = {}, name = def.name || 'animation') {
+      const anim = new Animation(name);
+      anim.loop_mode = def.loop || def.loop_mode || 'none';
+      anim.length = Number(def.length) || 1;
+      anim._auto_length = false;
+      for (const t of def.tracks || []) {
+        if (t.method) {
+          if (Array.isArray(t.at)) {
+            for (const at of t.at) anim.add_method_track({ node: t.node, method: t.method, at, args: t.args });
+          } else anim.add_method_track(t);
+        } else anim.add_track(t);
+      }
+      anim._auto_length = true;
+      return anim;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* AnimationPlayer                                                     */
+  /* ------------------------------------------------------------------ */
+  class AnimationPlayer extends Node {
+    constructor() {
+      super();
+      this.speed_scale = 1;
+      this.playback_default_blend_time = 0;
+      this.animations = {};        // name -> Animation
+      this.autoplay = '';          // name played in _ready()
+      this._current = null;
+      this._time = 0;
+      this._playing = false;
+      this._paused = false;
+      this._queue = null;
+      this._direction = 1;         // for pingpong
+      for (const s of ['animation_started', 'animation_finished', 'animation_changed',
+        'animation_looped', 'track_keyframe_reached']) this.add_signal(s);
+    }
+
+    static def = {
+      name: 'AnimationPlayer', icon: '🎞️', kind: 'Animation', base: 'Node',
+      desc: 'Plays keyframe animations: position, scale, color, method calls.',
+      props: [
+        { path: 'autoplay', type: 'string', doc: 'Animation played automatically on _ready().' },
+        { path: 'speed_scale', type: 'number', step: 0.1, doc: 'Playback speed multiplier.' },
+        {
+          path: 'animations', type: 'json', doc: 'Animation dictionary (see docs 11-animation.md).',
+          sample: {
+            bounce: {
+              length: 0.6, loop: 'pingpong',
+              tracks: [{ node: '.', property: 'position.y', keys: [[0, 0, 'quad_in'], [0.5, -40, 'quad_out']] }],
+            },
+          },
+        },
+      ],
+      methods: [
+        { sig: "play(name, {speed, from_end})", desc: 'Start (or restart) an animation.' },
+        { sig: 'stop()', desc: 'Stop and reset to time 0.' },
+        { sig: 'pause()/resume()', desc: 'Freeze or continue playback.' },
+        { sig: 'queue(name)', desc: 'Play another animation right after this one.' },
+        { sig: 'seek(time)', desc: 'Jump to a time in seconds and apply it.' },
+        { sig: 'is_playing()', desc: 'True while an animation runs.' },
+      ],
+      signals: [
+        { name: 'animation_started', args: ['name'], desc: 'An animation began.' },
+        { name: 'animation_finished', args: ['name'], desc: 'A non-looping animation ended.' },
+        { name: 'animation_changed', args: ['old', 'new'], desc: 'The player switched animations.' },
+      ],
+    };
+
+    /* ---------------- authoring ---------------- */
+    set animations(v) {
+      this._animations = {};
+      if (v && typeof v === 'object') {
+        for (const [name, def] of Object.entries(v)) this._animations[name] = def instanceof Animation ? def : Animation.from(def, name);
+      }
+    }
+    get animations() { return this._animations || (this._animations = {}); }
+
+    add_animation(name, def = {}) {
+      const anim = def instanceof Animation ? def : Animation.from(def, name);
+      anim.name = name;
+      this.animations[name] = anim;
+      return anim;
+    }
+
+    get_animation(name) { return this.animations[name] || null; }
+    has_animation(name) { return !!this.animations[name]; }
+    get animation_names() { return Object.keys(this.animations); }
+    get animation_list() { return this.animation_names; }
+
+    animation_length(name) {
+      const a = this.animations[name];
+      return a ? a.length : 0;
+    }
+
+    /** make(name, def) — build an animation and play it straight away. */
+    make(name, def = {}) {
+      const anim = this.add_animation(name, def);
+      this.play(name);
+      return anim;
+    }
+
+    /** Backwards-compatible helper used by older examples: `anim.play_once()`. */
+    play_once(name, speed = 1) { return this.play(name, { speed }); }
+
+    /* ---------------- playback ---------------- */
+    get current_animation() { return this._current; }
+    get current_animation_length() { return this._current ? this.animation_length(this._current) : 0; }
+    get current_animation_position() { return this._time; }
+    get playing() { return this._playing; }
+    set playing(v) { if (v) this.play(this._current || this.animation_names[0]); else this.stop(); }
+    get speed() { return this.speed_scale; }
+    set speed(v) { this.speed_scale = Number(v) || 1; }
+    get next_animation() { return this._queue; }
+
+    is_playing() { return this._playing && !this._paused; }
+
+    play(name, opts = {}) {
+      if (typeof opts === 'number') opts = { speed: opts };
+      if (name && typeof name === 'object') {                 // play({animation: 'x'})
+        opts = name;
+        name = opts.name || opts.animation;
+      }
+      if (!name) name = this.animation_names[0];
+      if (!name) { Logger.warn('AnimationPlayer.play: no animation to play.'); return false; }
+      if (!this.animations[name]) {
+        Logger.warn(`AnimationPlayer.play: "${name}" is not defined (have: ${this.animation_names.join(', ') || 'none'}).`);
+        return false;
+      }
+      const old = this._current;
+      this._current = name;
+      this._time = opts.from_end ? this.animation_length(name) : (opts.from || 0);
+      this._speed = opts.speed === undefined ? 1 : opts.speed;
+      this.speed_scale = this._speed === undefined ? 1 : this.speed_scale;
+      this._direction = opts.speed < 0 ? -1 : 1;
+      this._playing = true;
+      this._paused = false;
+      this._finished = false;
+      if (old !== name) this.emit_signal('animation_changed', old, name);
+      this.emit_signal('animation_started', name);
+      this._apply(0);
+      return true;
+    }
+
+    stop(reset = true) {
+      if (this._playing && this._current) this.emit_signal('animation_finished', this._current);
+      this._playing = false;
+      this._paused = false;
+      if (reset) {
+        this._time = 0;
+        this._direction = 1;
+      }
+      return this;
+    }
+
+    pause() { if (this._playing) this._paused = true; return this; }
+    resume() { if (this._playing) this._paused = false; return this; }
+    toggle_pause() { if (this._paused) this.resume(); else this.pause(); return this; }
+
+    /** queue(name) — play next when the current animation finishes. */
+    queue(name) { this._queue = name; return this; }
+
+    /** seek(time) — jump and immediately apply the sampled pose. */
+    seek(time) {
+      this._time = Number(time) || 0;
+      this._apply(this._time);
+      return this;
+    }
+
+    /** advance(delta) — exposed for tests and custom loops. */
+    advance(delta) { this._process(delta); return this; }
+
+    /* ---------------- internals ---------------- */
+    _ready() {
+      if (this.autoplay) this.play(this.autoplay);
+    }
+
+    _resolve(path) {
+      if (path === undefined || path === null || path === '' || path === '.') return this.parent || this;
+      let node = null;
+      try { node = this.get_node(path); } catch (e) { node = null; }
+      if (!node && this.parent) {
+        try { node = this.parent.get_node(path); } catch (e) { node = null; }
+        if (!node && this.parent.parent) { try { node = this.parent.parent.get_node(path); } catch (e) { node = null; } }
+      }
+      if (!node) { try { node = this.tree && this.tree.get_node(path); } catch (e) { node = null; } }
+      if (!node && !this._warned_missing) {
+        this._warned_missing = this._warned_missing || {};
+        if (!this._warned_missing[path]) {
+          this._warned_missing[path] = true;
+          Logger.warn(`AnimationPlayer: track target "${path}" not found (relative to ${this.path}).`);
+        }
+      }
+      return node;
+    }
+
+    _write_property(node, property, value) {
+      if (!node || !property) return;
+      const parts = String(property).split('.');
+      let target = node;
+      for (let i = 0; i < parts.length - 1; i++) {
+        target = target ? target[parts[i]] : null;
+        if (!target) return;
+      }
+      const key = parts[parts.length - 1];
+      const current = target[key];
+      let out = value;
+      if (current instanceof Vector2) out = to_vec(value);
+      else if (current instanceof Color) out = Color.from(value);
+      else if (typeof current === 'number' && typeof value !== 'number') out = Number(value) || 0;
+      else if (typeof current === 'boolean') out = !!value;
+      try { target[key] = out; } catch (e) { /* read-only property — skip */ }
+    }
+
+    _apply(time) {
+      const anim = this.animations[this._current];
+      if (!anim) return;
+      for (const track of anim.tracks) {
+        const node = this._resolve(track.node);
+        if (!node) continue;
+        if (track.method_track) continue;
+        const v = anim.sample_track(track, time);
+        this._write_property(node, track.property, v);
+      }
+    }
+
+    _fire_methods(anim, from, to) {
+      for (const track of anim.tracks) {
+        if (!track.method_track) continue;
+        const node = this._resolve(track.node);
+        if (!node) continue;
+        for (const k of track.keys) {
+          const hit = from === to ? Math.abs(k.t - to) < 1e-6 : (k.t > from && k.t <= to);
+          if (!hit) continue;
+          if (typeof node[track.method] !== 'function') {
+            Logger.warn(`AnimationPlayer: ${node} has no method "${track.method}()" to call.`);
+            continue;
+          }
+          try { node[track.method].apply(node, k.args || track.args || []); }
+          catch (e) { Logger.error(`Animation method track ${track.method}() failed: ${e.message}`); }
+          this.emit_signal('track_keyframe_reached', track.node, track.method, k.t);
+        }
+      }
+    }
+
+    _process(delta) {
+      if (!this._playing || this._paused) return;
+      const anim = this.animations[this._current];
+      if (!anim) { this._playing = false; return; }
+      const prev = this._time;
+      const dir = this._direction === -1 ? -1 : 1;
+      let next = prev + delta * this.speed_scale * dir * Math.max(0, this._speed === undefined ? 1 : 1);
+      const len = anim.length;
+
+      if (len <= 0) { this._time = 0; return; }
+
+      if (anim.loop_mode === 'linear' || anim.loop_mode === 'loop') {
+        if (next >= len) {
+          const overshoot = next - len;
+          this.emit_signal('animation_looped', this._current);
+          this._time = 0;
+          this._apply(0);
+          if (overshoot > 0) {
+            this._fire_methods(anim, len, len);
+            this._time = Math.min(overshoot, len);
+            this._apply(this._time);
+            this._fire_methods(anim, 0, this._time);
+          }
+          return;
+        }
+        if (next < 0 && dir < 0) next = len;
+      } else if (anim.loop_mode === 'pingpong') {
+        if (next >= len) { next = len - (next - len); this._direction = -1; if (next < 0) next = 0; }
+        else if (next <= 0) { next = -next; this._direction = 1; if (next > len) next = len; }
+      } else if (next >= len) {                       // 'none'
+        next = len;
+        this._time = next;
+        this._apply(next);
+        this._fire_methods(anim, prev, next);
+        this._playing = false;
+        this.emit_signal('animation_finished', this._current);
+        const q = this._queue;
+        this._queue = null;
+        if (q) this.play(q);
+        return;
+      }
+
+      this._time = next;
+      this._apply(next);
+      this._fire_methods(anim, prev, next);
+    }
+  }
+
+  GE.Animation = Animation;
+  GE.Classes.register(AnimationPlayer);
+  GE.AnimationPlayer = AnimationPlayer;
+})(typeof globalThis.GE !== 'undefined' ? globalThis.GE : (globalThis.GE = {}));
+
+/* ==========================================================================
+   Goodness Engine — nodes/navigation.js
+   Pathfinding the friendly way:
+
+     NavigationRegion2D   a walkable area (a polygon, a TileMap, or both)
+     NavigationAgent2D    "walk me to this point, please"
+     RayCast2D            line-of-sight checks, bullets, vision cones
+
+   The region bakes itself into a grid the first time it is needed, so a
+   TileMap level becomes navigable with zero setup:
+
+       const slime = tree.get_node('Slimes/Slime1');
+       slime.get_node('Agent').set_target(player.global_position);
+       ...
+       slime.get_node('Agent').move_body(slime, delta, 90);
+   ========================================================================== */
+(function (GE) {
+  'use strict';
+
+  const { Node2D, Vector2, Logger } = GE;
+
+  /* ------------------------------------------------------------------ */
+  /* Baking helpers                                                      */
+  /* ------------------------------------------------------------------ */
+
+  /** Normalise `polygon` / `points` props into an array of Vector2. */
+  function to_points(raw) {
+    if (!Array.isArray(raw)) return null;
+    const out = [];
+    for (const p of raw) {
+      if (Array.isArray(p)) out.push(new Vector2(Number(p[0]) || 0, Number(p[1]) || 0));
+      else if (p && typeof p === 'object' && p.x !== undefined) out.push(new Vector2(Number(p.x) || 0, Number(p.y) || 0));
+    }
+    return out.length >= 3 ? out : null;
+  }
+
+  function point_in_polygon(p, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      const hit = ((a.y > p.y) !== (b.y > p.y)) &&
+        (p.x < (b.x - a.x) * (p.y - a.y) / ((b.y - a.y) || 1e-9) + a.x);
+      if (hit) inside = !inside;
+    }
+    return inside;
+  }
+
+  /** Simple binary-heap priority queue (keeps A* snappy on big levels). */
+  class MinHeap {
+    constructor() { this.items = []; }
+    get size() { return this.items.length; }
+    push(item, priority) {
+      const it = { item, priority };
+      this.items.push(it);
+      let i = this.items.length - 1;
+      while (i > 0) {
+        const parent = (i - 1) >> 1;
+        if (this.items[parent].priority <= this.items[i].priority) break;
+        [this.items[parent], this.items[i]] = [this.items[i], this.items[parent]];
+        i = parent;
+      }
+    }
+    pop() {
+      const top = this.items[0];
+      const last = this.items.pop();
+      if (this.items.length) {
+        this.items[0] = last;
+        let i = 0;
+        for (;;) {
+          const l = i * 2 + 1, r = l + 1;
+          let small = i;
+          if (l < this.items.length && this.items[l].priority < this.items[small].priority) small = l;
+          if (r < this.items.length && this.items[r].priority < this.items[small].priority) small = r;
+          if (small === i) break;
+          [this.items[small], this.items[i]] = [this.items[i], this.items[small]];
+          i = small;
+        }
+      }
+      return top ? top.item : undefined;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* NavigationRegion2D                                                  */
+  /* ------------------------------------------------------------------ */
+  class NavigationRegion2D extends Node2D {
+    constructor() {
+      super();
+      this.polygon = [];            // [[x,y], ...] explicit walkable area
+      this.obstacles = [];          // [[[x,y],...], ...] holes in the area
+      this._cell_size = 16;         // bake resolution in pixels
+      this._cell_size_explicit = false;
+      this.tilemap = '';            // optional node path of a TileMap to read
+      this.auto_tilemap = true;     // use the first TileMap in the scene
+      this.agent_radius = 2;        // pixels of clearance kept around walls
+      this.auto_bake = true;
+      this._grid = null;
+      this._origin = new Vector2();
+      this.add_signal('baked');
+    }
+
+    static def = {
+      name: 'NavigationRegion2D', icon: '🧭', kind: 'Navigation', base: 'Node2D',
+      desc: 'A walkable area for pathfinding. Bakes from a polygon or a TileMap.',
+      props: [
+        { path: 'polygon', type: 'json', doc: 'Walkable polygon, e.g. [[0,0],[640,0],[640,360],[0,360]].' },
+        { path: 'obstacles', type: 'json', doc: 'Array of polygons to cut out of the area.' },
+        { path: 'cell_size', type: 'number', min: 4, step: 4, doc: 'Bake resolution in pixels (smaller = finer).' },
+        { path: 'tilemap', type: 'string', doc: 'Node path of a TileMap to bake from (optional).' },
+        { path: 'auto_tilemap', type: 'bool', doc: 'Use the first TileMap in the scene when no polygon is set.' },
+        { path: 'agent_radius', type: 'number', min: 0, step: 1, doc: 'Clearance kept around walls, in pixels.' },
+        { path: 'auto_bake', type: 'bool', doc: 'Bake on the first query instead of asking.' },
+      ],
+      methods: [
+        { sig: 'bake()', desc: 'Rebuild the navigation grid (call after editing a TileMap).' },
+        { sig: 'is_baked()', desc: 'True when the grid is ready.' },
+        { sig: 'is_walkable(point)', desc: 'Is this world point navigable?' },
+        { sig: 'find_path(from, to)', desc: 'Array of world points from A to B (empty if no route).' },
+        { sig: 'random_point()', desc: 'A random walkable world point.' },
+      ],
+      signals: [{ name: 'baked', args: ['cells'], desc: 'The grid was rebuilt.' }],
+    };
+
+    is_baked() { return !!this._grid; }
+
+    _resolve_tilemap() {
+      if (this.tilemap) {
+        try {
+          const n = this.get_node(this.tilemap) || (this.tree && this.tree.get_node(this.tilemap));
+          if (n) return n;
+        } catch (e) { /* fall through */ }
+      }
+      if (this.auto_tilemap && this.tree && this.tree.root) {
+        const found = [];
+        (function collect(n) {
+          if (n.class_name === 'TileMap') found.push(n);
+          for (const c of n.children) collect(c);
+        })(this.tree.root);
+        if (found.length) return found[0];
+      }
+      return null;
+    }
+
+    /** Bake resolution. Left at the default it follows the source TileMap. */
+    get cell_size() { return this._cell_size; }
+    set cell_size(v) { this._cell_size = Math.max(4, Number(v) || 16); this._cell_size_explicit = true; }
+
+    bake() {
+      const poly = to_points(this.polygon);
+      const tilemap = poly ? (this.tilemap ? this._resolve_tilemap() : null) : this._resolve_tilemap();
+      const cell = this._cell_size_explicit
+        ? this._cell_size
+        : Math.max(4, Number(tilemap && tilemap.cell_size) || this._cell_size);
+      let min_x = Infinity, min_y = Infinity, max_x = -Infinity, max_y = -Infinity;
+      const consider = (x, y) => {
+        min_x = Math.min(min_x, x); min_y = Math.min(min_y, y);
+        max_x = Math.max(max_x, x); max_y = Math.max(max_y, y);
+      };
+
+      if (poly) for (const p of poly) consider(p.x, p.y);
+      if (tilemap && tilemap.grid_size) {
+        const cs = Number(tilemap.cell_size) || 32;
+        const size = tilemap.grid_size;                  // in cells
+        const pos = tilemap.global_position;
+        consider(pos.x, pos.y);
+        consider(pos.x + size.x * cs, pos.y + size.y * cs);
+      }
+      if (!isFinite(min_x)) {                       // nothing to bake from: use the viewport
+        const vw = (this.tree && this.tree.engine && this.tree.engine.size) || { w: 1280, h: 720 };
+        min_x = 0; min_y = 0; max_x = vw.w || 1280; max_y = vw.h || 720;
+      }
+
+      const origin = new Vector2(min_x, min_y);
+      const cols = Math.max(1, Math.ceil((max_x - min_x) / cell));
+      const rows = Math.max(1, Math.ceil((max_y - min_y) / cell));
+      if (cols * rows > 300000) {
+        Logger.warn(`NavigationRegion2D: ${cols}x${rows} cells is too fine — increase cell_size.`);
+        return false;
+      }
+
+      const solid = new Uint8Array(cols * rows);
+      const idx = (c, r) => r * cols + c;
+      const cell_center = (c, r) => new Vector2(origin.x + (c + 0.5) * cell, origin.y + (r + 0.5) * cell);
+
+      /* 1. solid cells from an obstacle polygon list */
+      const obstacles = Array.isArray(this.obstacles) ? this.obstacles : [];
+      for (const raw of obstacles) {
+        const op = to_points(raw) || (Array.isArray(raw) && raw.polygon ? to_points(raw.polygon) : null);
+        if (!op) continue;
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            if (solid[idx(c, r)]) continue;
+            if (point_in_polygon(cell_center(c, r), op)) solid[idx(c, r)] = 1;
+          }
+        }
+      }
+
+      /* 2. walkability from a TileMap (solid tiles block the cell) */
+      if (tilemap && typeof tilemap.is_cell_solid === 'function') {
+        const cell_px = Number(tilemap.cell_size) || 32;
+        const to_map = (p) => (typeof tilemap.world_to_map === 'function'
+          ? tilemap.world_to_map(p)
+          : new Vector2(Math.floor(p.x / cell_px), Math.floor(p.y / cell_px)));
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const p = cell_center(c, r);
+            if (solid[idx(c, r)]) continue;
+            if (poly && !point_in_polygon(p, poly)) { solid[idx(c, r)] = 1; continue; }
+            const cell_rc = to_map(p);
+            if (tilemap.is_cell_solid(Math.floor(cell_rc.x), Math.floor(cell_rc.y))) solid[idx(c, r)] = 1;
+          }
+        }
+      } else if (poly) {
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            if (!solid[idx(c, r)] && !point_in_polygon(cell_center(c, r), poly)) solid[idx(c, r)] = 1;
+          }
+        }
+      }
+
+      /* 3. clearance: dilate walls by agent_radius so agents don't hug corners */
+      const radius_cells = Math.max(0, Math.round((Number(this.agent_radius) || 0) / cell));
+      if (radius_cells > 0) {
+        const padded = solid.slice();
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            if (!solid[idx(c, r)]) continue;
+            for (let dr = -radius_cells; dr <= radius_cells; dr++) {
+              for (let dc = -radius_cells; dc <= radius_cells; dc++) {
+                const rr = r + dr, cc = c + dc;
+                if (rr < 0 || cc < 0 || rr >= rows || cc >= cols) continue;
+                if (dc * dc + dr * dr > radius_cells * radius_cells + radius_cells) continue;
+                padded[idx(cc, rr)] = 1;
+              }
+            }
+          }
+        }
+        solid.set(padded);
+      }
+
+      this._grid = { cols, rows, cell, solid, origin };
+      let open = 0;
+      for (let i = 0; i < solid.length; i++) if (!solid[i]) open++;
+      this.emit_signal('baked', open);
+      if (!open) Logger.warn('NavigationRegion2D: baked an empty area — check the polygon/obstacles.');
+      return this._grid;
+    }
+
+    _ensure_baked() {
+      if (this._grid) return true;
+      if (this.auto_bake) return this.bake();
+      return false;
+    }
+
+    _cell_at(world) {
+      const g = this._grid;
+      const p = Vector2.from(world);
+      const c = Math.floor((p.x - g.origin.x) / g.cell);
+      const r = Math.floor((p.y - g.origin.y) / g.cell);
+      if (c < 0 || r < 0 || c >= g.cols || r >= g.rows) return null;
+      return { c, r };
+    }
+
+    _cell_center(c, r) {
+      const g = this._grid;
+      return new Vector2(g.origin.x + (c + 0.5) * g.cell, g.origin.y + (r + 0.5) * g.cell);
+    }
+
+    is_walkable(world) {
+      if (!this._ensure_baked()) return false;
+      const cell = this._cell_at(world);
+      if (!cell) return false;
+      const g = this._grid;
+      return !g.solid[cell.r * g.cols + cell.c];
+    }
+
+    /** Nearest walkable cell centre to a world point (spiral search). */
+    _closest_open(world) {
+      const g = this._grid;
+      const cell = this._cell_at(world);
+      if (!cell) return null;
+      if (!g.solid[cell.r * g.cols + cell.c]) return this._cell_center(cell.c, cell.r);
+      for (let ring = 1; ring <= Math.max(g.cols, g.rows); ring++) {
+        for (let dr = -ring; dr <= ring; dr++) {
+          for (let dc = -ring; dc <= ring; dc++) {
+            if (Math.max(Math.abs(dr), Math.abs(dc)) !== ring) continue;
+            const c = cell.c + dc, r = cell.r + dr;
+            if (c < 0 || r < 0 || c >= g.cols || r >= g.rows) continue;
+            if (!g.solid[r * g.cols + c]) return this._cell_center(c, r);
+          }
+        }
+      }
+      return null;
+    }
+
+    _line_clear(a, b) {
+      const g = this._grid;
+      const steps = Math.ceil(a.distance_to(b) / (g.cell * 0.5)) + 1;
+      for (let i = 0; i <= steps; i++) {
+        const p = a.lerp(b, i / steps);
+        const cell = this._cell_at(p);
+        if (!cell || g.solid[cell.r * g.cols + cell.c]) return false;
+      }
+      return true;
+    }
+
+    /** A* over the baked grid; returns smoothed world-space waypoints. */
+    find_path(from, to) {
+      if (!this._ensure_baked()) return [];
+      const g = this._grid;
+      const start = this._closest_open(from);
+      const goal = this._closest_open(to);
+      if (!start || !goal) return [];
+      const sc = this._cell_at(start), gc = this._cell_at(goal);
+      if (!sc || !gc) return [];
+      const start_i = sc.r * g.cols + sc.c, goal_i = gc.r * g.cols + gc.c;
+      if (start_i === goal_i) return [goal];
+
+      const size = g.cols * g.rows;
+      const g_score = new Float64Array(size).fill(Infinity);
+      const came = new Int32Array(size).fill(-1);
+      const closed = new Uint8Array(size);
+      const open = new MinHeap();
+      const h = (i) => {
+        const c = i % g.cols, r = (i - c) / g.cols;
+        const dx = Math.abs(c - gc.c), dy = Math.abs(r - gc.r);
+        return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
+      };
+      g_score[start_i] = 0;
+      open.push(start_i, h(start_i));
+      const NEI = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, 1, Math.SQRT2], [-1, -1, Math.SQRT2]];
+      let found = false;
+      let guard = 0;
+      while (open.size && guard++ < size * 4) {
+        const cur = open.pop();
+        if (closed[cur]) continue;
+        closed[cur] = 1;
+        if (cur === goal_i) { found = true; break; }
+        const cc = cur % g.cols, rr = (cur - cc) / g.cols;
+        for (const [dc, dr, cost] of NEI) {
+          const c = cc + dc, r = rr + dr;
+          if (c < 0 || r < 0 || c >= g.cols || r >= g.rows) continue;
+          const i = r * g.cols + c;
+          if (g.solid[i] || closed[i]) continue;
+          /* no diagonal corner cutting */
+          if (dc && dr && (g.solid[rr * g.cols + c] || g.solid[r * g.cols + cc])) continue;
+          const tentative = g_score[cur] + cost;
+          if (tentative < g_score[i] - 1e-9) {
+            g_score[i] = tentative;
+            came[i] = cur;
+            open.push(i, tentative + h(i));
+          }
+        }
+      }
+      if (!found) return [];
+
+      const cells = [];
+      let i = goal_i;
+      while (i !== -1 && cells.length < size) { cells.push(i); i = came[i]; }
+      cells.reverse();
+      const raw = cells.map((ci) => {
+        const c = ci % g.cols, r = (ci - c) / g.cols;
+        return this._cell_center(c, r);
+      });
+
+      /* string-pulling: keep only the corners we actually need */
+      const out = [];
+      let anchor = 0;
+      while (anchor < raw.length) {
+        let next = raw.length - 1;
+        while (next > anchor + 1 && !this._line_clear(raw[anchor], raw[next])) next--;
+        out.push(raw[next]);
+        if (next === anchor) break;
+        anchor = next;
+      }
+      const last = Vector2.from(to);
+      if (out.length && this._line_clear(out[out.length - 1], last)) out[out.length - 1] = last;
+      return out;
+    }
+
+    random_point() {
+      if (!this._ensure_baked()) return Vector2.from(this.global_position);
+      const g = this._grid;
+      const open_cells = [];
+      for (let i = 0; i < g.solid.length; i++) if (!g.solid[i]) open_cells.push(i);
+      if (!open_cells.length) return Vector2.from(this.global_position);
+      const pick = open_cells[Math.floor(GE.randf() * open_cells.length)];
+      const c = pick % g.cols, r = (pick - c) / g.cols;
+      return this._cell_center(c, r);
+    }
+
+    /** Debug helper: paint the baked grid (great while learning). */
+    debug_draw(ctx, color = 'rgba(79,211,140,0.25)') {
+      if (!this._grid) return;
+      const g = this._grid;
+      ctx.fillStyle = color;
+      for (let r = 0; r < g.rows; r++) {
+        for (let c = 0; c < g.cols; c++) {
+          if (g.solid[r * g.cols + c]) continue;
+          const p = this._cell_center(c, r);
+          ctx.fillRect(p.x - g.cell / 2, p.y - g.cell / 2, g.cell, g.cell);
+        }
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* NavigationAgent2D                                                   */
+  /* ------------------------------------------------------------------ */
+  class NavigationAgent2D extends Node2D {
+    constructor() {
+      super();
+      this.target_position = new Vector2();
+      this.region = '';                 // optional node path of a NavigationRegion2D
+      this.path_desired_distance = 8;   // how close counts as "reached this corner"
+      this.target_desired_distance = 8; // how close counts as "arrived"
+      this.repath_interval = 0.35;      // seconds between automatic re-paths
+      this.avoidance_enabled = false;
+      this.debug_path = false;
+      this._path = [];
+      this._index = 0;
+      this._target = new Vector2(NaN, NaN);
+      this._since_repath = 0;
+      this._finished = true;
+      this.add_signal('path_changed');
+      this.add_signal('target_reached');
+    }
+
+    static def = {
+      name: 'NavigationAgent2D', icon: '🧭', kind: 'Navigation', base: 'Node2D',
+      desc: 'Finds and follows paths. Put one under any character you want to walk by itself.',
+      props: [
+        { path: 'target_position', type: 'vector2', doc: 'Where to walk (world coordinates).' },
+        { path: 'region', type: 'string', doc: 'Node path of the NavigationRegion2D (auto-detected if empty).' },
+        { path: 'path_desired_distance', type: 'number', min: 1, doc: 'Distance at which a corner counts as reached.' },
+        { path: 'target_desired_distance', type: 'number', min: 1, doc: 'Distance at which the target counts as reached.' },
+        { path: 'repath_interval', type: 'number', min: 0, step: 0.05, doc: 'Seconds between automatic re-paths.' },
+        { path: 'debug_path', type: 'bool', doc: 'Draw the current path (learning aid).' },
+      ],
+      methods: [
+        { sig: 'set_target(point)', desc: 'Ask for a new path to a world point.' },
+        { sig: 'get_next_path_position()', desc: 'The next waypoint to walk toward.' },
+        { sig: 'is_navigation_finished()', desc: 'True when the target was reached.' },
+        { sig: 'distance_to_target()', desc: 'Straight-line distance to the target.' },
+        { sig: "move_body(body, delta, speed)", desc: "Walk a CharacterBody2D one step along the path." },
+      ],
+      signals: [
+        { name: 'path_changed', args: ['points'], desc: 'A new path was computed.' },
+        { name: 'target_reached', desc: 'The agent finished walking.' },
+      ],
+    };
+
+    _resolve_region() {
+      if (this._region) return this._region;
+      if (this.region) {
+        try {
+          const n = this.get_node(this.region) || (this.tree && this.tree.get_node(this.region));
+          if (n) { this._region = n; return n; }
+        } catch (e) { /* fall through */ }
+      }
+      if (!this.tree) return null;
+      const found = [];
+      const collect = (n) => { if (n instanceof NavigationRegion2D) found.push(n); for (const c of n.children) collect(c); };
+      collect(this.tree.root);
+      this._region = found[0] || null;
+      return this._region;
+    }
+
+    set_target(point, { force = false } = {}) {
+      const p = Vector2.from(point);
+      this.target_position = p;
+      const moved = !(Math.abs(p.x - this._target.x) < 0.01 && Math.abs(p.y - this._target.y) < 0.01);
+      if (!force && !moved && this._path.length) return this._path;
+      this._target = p;
+      return this.repath();
+    }
+
+    /** Whose position we steer from: the last body passed to move_body(). */
+    _here() { return this._steer_pos ? Vector2.from(this._steer_pos) : this.global_position; }
+
+    repath() {
+      const region = this._resolve_region();
+      if (!region) { this._path = []; this._index = 0; this._finished = true; return []; }
+      const from = this._here();
+      this._path = region.find_path(from, this._target);
+      this._index = 0;
+      this._finished = this._path.length === 0;
+      this._since_repath = 0;
+      this.emit_signal('path_changed', this._path.slice());
+      return this._path;
+    }
+
+    get path() { return this._path.slice(); }
+    get_path() { return this._path.slice(); }
+    get next_position() { return this.get_next_path_position(); }
+
+    get_next_path_position() {
+      if (!this._path.length) return Vector2.from(this._target);
+      const here = this._here();
+      while (this._index < this._path.length - 1 &&
+        here.distance_to(this._path[this._index]) <= this.path_desired_distance) this._index++;
+      return this._path[this._index];
+    }
+
+    /** Pass a position to test a body's progress instead of the agent's own. */
+    is_navigation_finished(position = null) {
+      if (this._finished && !this._path.length) return true;
+      const here = position ? Vector2.from(position) : this.global_position;
+      return here.distance_to(this._target) <= this.target_desired_distance;
+    }
+
+    distance_to_target(position = null) {
+      const here = position ? Vector2.from(position) : this.global_position;
+      return here.distance_to(this._target);
+    }
+
+    /** Walk `body` toward the next waypoint at `speed` px/s. Returns the direction. */
+    move_body(body, delta, speed = 100) {
+      const region = this._resolve_region();
+      if (region && region.is_baked && !region.is_baked()) region.bake();
+      /* follow the body we are steering, not the agent node itself */
+      this._steer_pos = Vector2.from(body.global_position);
+      this._since_repath += delta;
+      if (this._since_repath >= this.repath_interval && this.repath_interval > 0) {
+        this._since_repath = 0;
+        const before = this._path.length;
+        this.repath();
+        void before;
+      }
+      if (this.is_navigation_finished()) {
+        if (!this._finished) { this._finished = true; this.emit_signal('target_reached'); }
+        if (body.velocity) body.velocity = Vector2.ZERO;
+        return Vector2.ZERO;
+      }
+      this._finished = false;
+      const next = this.get_next_path_position();
+      const here = body.global_position;
+      const to = next.sub(here);
+      const dir = to.length < 1 ? Vector2.ZERO : to.normalized;
+      if (body.velocity) body.velocity = dir.mul(speed);
+      if (typeof body.move_and_slide === 'function') body.move_and_slide();
+      else if (typeof body.move_and_collide === 'function') body.move_and_collide(dir.mul(speed * delta));
+      else body.global_position = here.add(dir.mul(speed * delta));
+      if (body.get_angle_to) {
+        const ang = Math.atan2(dir.y, dir.x) * 180 / Math.PI;
+        if (dir.length > 0) body.rotation = ang;
+      }
+      /* the step that arrives is the step that announces it */
+      if (!this._finished && this.is_navigation_finished(body.global_position)) {
+        this._finished = true;
+        this.emit_signal('target_reached');
+      }
+      return dir;
+    }
+
+    _process(delta) {
+      if (!this.debug_path || !this.tree) return;
+      this._since_repath += delta;
+    }
+
+    _draw(ctx) {
+      if (!this.debug_path || !this._path.length) return;
+      ctx.strokeStyle = 'rgba(110,168,255,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      const here = this.to_local(this.global_position);
+      ctx.moveTo(here.x, here.y);
+      for (const p of this._path.slice(this._index)) {
+        const l = this.to_local(p);
+        ctx.lineTo(l.x, l.y);
+      }
+      ctx.stroke();
+      const n = this._path[this._index];
+      if (n) {
+        const l = this.to_local(n);
+        ctx.fillStyle = '#ffd257';
+        ctx.beginPath();
+        ctx.arc(l.x, l.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    _draw_this() { return !!this.debug_path && this._path.length > 0; }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* RayCast2D — line-of-sight, bullets, "can the guard see me?"         */
+  /* ------------------------------------------------------------------ */
+  class RayCast2D extends Node2D {
+    constructor() {
+      super();
+      this.enabled = true;
+      this.target_position = new Vector2(100, 0);   // relative to this node
+      this.collide_with_areas = true;
+      this.collide_with_bodies = true;
+      this.exclude_parent = true;
+      this.debug = false;
+      this._collider = null;
+      this._point = null;
+      this._normal = null;
+      this._distance = 0;
+    }
+
+    static def = {
+      name: 'RayCast2D', icon: '📡', kind: 'Navigation', base: 'Node2D',
+      desc: 'Casts an invisible line and reports what it hits.',
+      props: [
+        { path: 'enabled', type: 'bool', doc: 'Turn the ray on or off.' },
+        { path: 'target_position', type: 'vector2', doc: 'Ray end, relative to this node.' },
+        { path: 'collide_with_bodies', type: 'bool', doc: 'Hit physics bodies (true) or only areas.' },
+        { path: 'collide_with_areas', type: 'bool', doc: 'Include Area2D nodes.' },
+        { path: 'exclude_parent', type: 'bool', doc: 'Ignore this node\'s parent (the guard itself).' },
+        { path: 'debug', type: 'bool', doc: 'Draw the ray while learning.' },
+      ],
+      methods: [
+        { sig: 'force_raycast_update()', desc: 'Re-cast immediately.' },
+        { sig: 'is_colliding()', desc: 'Did the ray hit anything this frame?' },
+        { sig: 'get_collider() / get_collision_point() / get_collision_normal()', desc: 'What and where it hit.' },
+        { sig: 'get_collision_distance()', desc: 'Distance from the ray origin to the hit.' },
+      ],
+    };
+
+    _physics_process() {
+      if (this.enabled) this.force_raycast_update();
+    }
+
+    force_raycast_update() {
+      const from = this.global_position;
+      const to = from.add(this.target_position);
+      const exclude = this.exclude_parent && this.parent ? [this.parent] : [];
+      const hit = this.tree && this.tree.physics
+        ? this.tree.physics.raycast(from, to, {
+          exclude,
+          collide_with_areas: this.collide_with_areas,
+          collide_with_bodies: this.collide_with_bodies,
+        })
+        : null;
+      this._collider = hit ? hit.collider : null;
+      this._point = hit ? hit.point : null;
+      this._normal = hit ? hit.normal : null;
+      this._distance = hit ? hit.distance : from.distance_to(to);
+      return hit;
+    }
+
+    is_colliding() { return !!this._collider; }
+    get_collider() { return this._collider; }
+    get_collision_point() { return this._point ? Vector2.from(this._point) : null; }
+    get_collision_normal() { return this._normal ? Vector2.from(this._normal) : null; }
+    get_collision_distance() { return this._distance; }
+
+    _draw_this() { return !!this.debug; }
+
+    _draw(ctx) {
+      const t = this.target_position;
+      ctx.strokeStyle = this._collider ? '#ff5a5f' : 'rgba(79,211,140,0.8)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      const p = this._collider && this._point ? this.to_local(this._point) : t;
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+  }
+
+  GE.NavigationRegion2D = NavigationRegion2D;
+  GE.NavigationAgent2D = NavigationAgent2D;
+  GE.RayCast2D = RayCast2D;
+  GE.Classes.register(NavigationRegion2D);
+  GE.Classes.register(NavigationAgent2D);
+  GE.Classes.register(RayCast2D);
+})(typeof globalThis.GE !== 'undefined' ? globalThis.GE : (globalThis.GE = {}));
+
+/* ==========================================================================
    Goodness Engine — nodes/audio.js
    AudioPlayer node — plays audio files (URLs / project sounds).
    For zero-asset sound effects use the SFX synth singleton instead.
@@ -4812,16 +6500,19 @@
 
 /* ==========================================================================
    Goodness Engine — net/services.js
-   Goodness ships with first-class support for three complete, free,
+   Goodness ships with first-class support for five complete, free,
    no-API-key, CORS-friendly public APIs:
 
-     API.pokemon  —  PokéAPI (https://pokeapi.co)        creatures & stats
-     API.trivia   —  Open Trivia DB (https://opentdb.com) quiz questions
-     API.weather  —  Open-Meteo (https://open-meteo.com)  live weather
+     API.pokemon  —  PokéAPI (https://pokeapi.co)             creatures & stats
+     API.trivia   —  Open Trivia DB (https://opentdb.com)     quiz questions
+     API.weather  —  Open-Meteo (https://open-meteo.com)      live weather
+     API.art      —  Art Institute of Chicago (artic.edu)     artworks + images
+     API.words    —  Datamuse (datamuse.com)                  rhymes & meanings
 
    Everything is cached, timeout-guarded and normalized into friendly
-   shapes. Games keep working offline when you add fallbacks (see the
-   trivia-quest example).
+   shapes. Every wrapper ships an offline fallback so games keep working
+   without a network (see the trivia-quest, art-gallery and word-duel
+   examples).
    ========================================================================== */
 (function (GE) {
   'use strict';
@@ -5028,6 +6719,54 @@
         };
       });
     },
+
+    /** Built-in question bank — quizzes keep working with no network at all.
+     *  Same shape as questions(), so it is a drop-in fallback:
+     *
+     *    let qs;
+     *    try { qs = await API.trivia.questions({ amount: 5 }); }
+     *    catch (e) { qs = API.trivia.offline_questions(5); }
+     */
+    offline_questions(amount = 8) {
+      const bank = [
+        ['Which of these is a 2D game engine that runs in a web browser?', ['Goodness Engine', 'Blender', 'Audacity', 'Photoshop'], 0, 'Computers', 'easy'],
+        ['In a Godot-style node tree, what does a child node inherit from its parent?', ['Its transform', 'Its name', 'Its script', 'Its signals'], 0, 'Computers', 'medium'],
+        ['What file format is a Goodness project saved in?', ['JSON', 'PNG', 'ZIP', 'EXE'], 0, 'Computers', 'easy'],
+        ['Which data structure does A* pathfinding expand next?', ['The lowest cost estimate', 'The first added', 'The largest node', 'A random node'], 0, 'Computers', 'medium'],
+        ['What does a RayCast2D report?', ['What a line hits', 'The mouse position', 'The camera zoom', 'The sound volume'], 0, 'Computers', 'easy'],
+        ['How many degrees are in a full rotation?', ['360', '100', '180', '270'], 0, 'Mathematics', 'easy'],
+        ['Which number is prime?', ['17', '21', '27', '33'], 0, 'Mathematics', 'easy'],
+        ['What is the time complexity of binary search?', ['O(log n)', 'O(n)', 'O(n²)', 'O(1)'], 0, 'Mathematics', 'medium'],
+        ['Which planet is known as the Red Planet?', ['Mars', 'Venus', 'Jupiter', 'Mercury'], 0, 'Science & Nature', 'easy'],
+        ['What gas do plants absorb from the air?', ['Carbon dioxide', 'Oxygen', 'Nitrogen', 'Helium'], 0, 'Science & Nature', 'easy'],
+        ['Which animal is the tallest living land animal?', ['Giraffe', 'Elephant', 'Camel', 'Horse'], 0, 'Animals', 'easy'],
+        ['What is the largest ocean on Earth?', ['Pacific Ocean', 'Atlantic Ocean', 'Indian Ocean', 'Arctic Ocean'], 0, 'Geography', 'easy'],
+        ['Which city hosted the 2012 Summer Olympics?', ['London', 'Paris', 'Tokyo', 'Rio de Janeiro'], 0, 'Sports', 'easy'],
+        ['Who painted the Mona Lisa?', ['Leonardo da Vinci', 'Michelangelo', 'Vincent van Gogh', 'Claude Monet'], 0, 'Art', 'easy'],
+      ];
+      const pool = bank.slice();
+      for (let j = pool.length - 1; j > 0; j--) {          // shuffle the bank
+        const r = GE.randi_range(0, j);
+        [pool[j], pool[r]] = [pool[r], pool[j]];
+      }
+      return pool.slice(0, Math.min(amount, pool.length)).map(([question, choices, right_ix, category, difficulty], i) => {
+        const answers = choices.slice();
+        for (let j = answers.length - 1; j > 0; j--) {      // shuffle the answers
+          const r = GE.randi_range(0, j);
+          [answers[j], answers[r]] = [answers[r], answers[j]];
+        }
+        return {
+          id: i,
+          question,
+          answers,
+          correct_index: answers.indexOf(choices[right_ix]),
+          category,
+          difficulty,
+          type: 'multiple',
+          offline: true,
+        };
+      });
+    },
   };
 
   /* ==================================================================== */
@@ -5075,12 +6814,261 @@
     },
   };
 
+  /* ==================================================================== */
+  /* Art Institute of Chicago — 120,000+ public-domain artworks            */
+  /* (https://api.artic.edu/docs — free, no key, CORS-friendly, images)    */
+  /* ==================================================================== */
+  const ART_FIELDS = [
+    'id', 'title', 'image_id', 'artist_title', 'artist_display', 'date_display',
+    'medium_display', 'dimensions', 'is_public_domain', 'department_title',
+    'place_of_origin', 'thumbnail', 'color',
+  ].join(',');
+
+  const art = {
+    base: 'https://api.artic.edu/api/v1',
+    iiif: 'https://www.artic.edu/iiif/2',
+    doc: 'https://api.artic.edu/docs',
+
+    /** IIIF image URL for an artwork's image_id. width 400 = thumbnail. */
+    image_url(image_id, width = 843) {
+      if (!image_id) return null;
+      return `${this.iiif}/${image_id}/full/${width},/0/default.jpg`;
+    },
+
+    _normalize(d, config) {
+      if (!d) return null;
+      const iiif = (config && config.iiif_url) || this.iiif;
+      return {
+        id: d.id,
+        title: d.title || 'Untitled',
+        artist: d.artist_title || 'Unknown artist',
+        artist_display: d.artist_display || '',
+        date: d.date_display || '',
+        medium: d.medium_display || '',
+        dimensions: d.dimensions || '',
+        department: d.department_title || '',
+        origin: d.place_of_origin || '',
+        is_public_domain: d.is_public_domain !== false,
+        image_id: d.image_id || null,
+        color: (d.color && (d.color.h) !== undefined) ? d.color : null,
+        image_url: d.image_id ? `${iiif}/${d.image_id}/full/843,/0/default.jpg` : null,
+        thumbnail_url: d.image_id ? `${iiif}/${d.image_id}/full/400,/0/default.jpg` : null,
+        raw: d,
+      };
+    },
+
+    /** Search the collection. opts: { limit, page, fields, public_domain } */
+    async search(query, opts = {}) {
+      const { limit = 12, page = 1, public_domain = false } = opts;
+      const params = new URLSearchParams({
+        q: query || 'painting',
+        limit: String(Math.min(100, Math.max(1, limit))),
+        page: String(Math.max(1, page)),
+        fields: opts.fields || ART_FIELDS,
+      });
+      const data = await http.cached_json(`${this.base}/artworks/search?${params}`, 6 * 3600);
+      const config = data.config || {};
+      let items = (data.data || []).map((d) => this._normalize(d, config)).filter(Boolean);
+      if (opts.with_images !== false) {
+        const with_img = items.filter((a) => a.image_url);
+        if (with_img.length) items = with_img;
+      }
+      if (public_domain) items = items.filter((a) => a.is_public_domain);
+      return items;
+    },
+
+    /** One artwork by id. */
+    async get(id) {
+      const data = await http.cached_json(`${this.base}/artworks/${encodeURIComponent(id)}?fields=${ART_FIELDS}`, 24 * 3600, `goodness:cache:art:${id}`);
+      return this._normalize(data.data, data.config);
+    },
+
+    /** A random artwork from the public collection. */
+    async random({ query = 'painting', page = null } = {}) {
+      const p = page || GE.randi_range(1, 400);
+      const items = await this.search(query, { limit: 12, page: p });
+      if (!items.length) return null;
+      return GE.choose(items);
+    },
+
+    /** Many artworks at once (a "deck"): great for galleries and card games. */
+    async collection(count = 8, opts = {}) {
+      const seen = new Map();
+      let guard = 0;
+      while (seen.size < count && guard++ < 6) {
+        const items = await this.search(opts.query || 'painting', { limit: Math.min(50, count * 3), page: GE.randi_range(1, 250) });
+        for (const it of items) seen.set(it.id, it);
+      }
+      const list = [...seen.values()];
+      for (let i = list.length - 1; i > 0; i--) {
+        const j = GE.randi_range(0, i);
+        [list[i], list[j]] = [list[j], list[i]];
+      }
+      return list.slice(0, count);
+    },
+
+    /** Load an artwork as a ready-to-draw Goodness Texture. */
+    async texture(id_or_artwork, { width = 843 } = {}) {
+      const a = typeof id_or_artwork === 'object' ? id_or_artwork : await this.get(id_or_artwork);
+      if (!a || !a.image_id) return null;
+      return GE.Assets.load_texture(this.image_url(a.image_id, width));
+    },
+
+    /** Fallback art so galleries keep working offline (procedural, no network). */
+    offline_deck(count = 8) {
+      const shapes = GE.ProceduralTextures.names().filter((n) => !['bullet', 'laser'].includes(n));
+      const titles = ['Study in Blue', 'Golden Hour', 'Silent Forms', 'Field Notes', 'Red Composition',
+        'Two Figures', 'Still Life', 'After the Rain', 'Night Window', 'Paper Garden'];
+      const out = [];
+      for (let i = 0; i < count; i++) {
+        const name = shapes[(i * 7 + 3) % shapes.length];
+        out.push({
+          id: -1 - i,
+          title: titles[i % titles.length] + ' #' + (i + 1),
+          artist: 'Procedural Collective',
+          image_url: `goodness://${name}`,
+          thumbnail_url: `goodness://${name}`,
+          is_public_domain: true,
+          offline: true,
+        });
+      }
+      return out;
+    },
+  };
+
+  /* ==================================================================== */
+  /* Datamuse — the word engine (https://www.datamuse.com/api/)            */
+  /* free, no key, CORS-friendly: rhymes, synonyms, meanings, syllables    */
+  /* ==================================================================== */
+  const words = {
+    base: 'https://api.datamuse.com',
+    doc: 'https://www.datamuse.com/api/',
+
+    _query(params, ttl = 24 * 3600) {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) {
+        if (v === undefined || v === null || v === '') continue;
+        qs.set(k, String(v));
+      }
+      return qs.toString();
+    },
+
+    /** Raw endpoint to anything Datamuse supports (ml, rel_rhy, sp, …). */
+    async query(params, { ttl = 24 * 3600, endpoint = 'words' } = {}) {
+      const qs = this._query(params);
+      const data = await http.cached_json(`${this.base}/${endpoint}?${qs}`, ttl);
+      return Array.isArray(data) ? data : [];
+    },
+
+    /** Clean up Datamuse's word list into {word, score, syllables, tags}. */
+    _normalize(list, limit) {
+      return (list || []).slice(0, limit).map((w) => ({
+        word: w.word,
+        score: w.score || 0,
+        syllables: w.numSyllables !== undefined ? w.numSyllables : null,
+        tags: w.tags || [],
+        defs: (w.defs || []).map((d) => {
+          const [pos, text] = String(d).split('\t');
+          return { part_of_speech: pos, text: text || pos };
+        }),
+      }));
+    },
+
+    /** Words with a similar meaning ("means like"). */
+    async like(phrase, n = 20) { return this._normalize(await this.query({ ml: phrase, max: n }), n); },
+    /** Synonyms. */
+    async synonyms(word, n = 20) { return this._normalize(await this.query({ rel_syn: word, max: n }), n); },
+    /** Rhymes — the classic word-game engine. */
+    async rhymes(word, n = 20) { return this._normalize(await this.query({ rel_rhy: word, max: n }), n); },
+    /** Near rhymes (imperfect — wider net). */
+    async near_rhymes(word, n = 20) { return this._normalize(await this.query({ rel_nry: word, max: n }), n); },
+    /** Antonyms. */
+    async antonyms(word, n = 20) { return this._normalize(await this.query({ rel_ant: word, max: n }), n); },
+    /** Words that sound like this one. */
+    async sounds_like(word, n = 20) { return this._normalize(await this.query({ sl: word, max: n }), n); },
+    /** Words spelled like this pattern ("c*t" → cat, cot…). */
+    async spelled_like(pattern, n = 20) { return this._normalize(await this.query({ sp: pattern, max: n }), n); },
+    /** Autocomplete / prefix suggestions. */
+    async suggest(prefix, n = 10) {
+      const list = await this.query({ s: prefix, max: n }, { endpoint: 'sug', ttl: 7 * 86400 });
+      return list.slice(0, n).map((w) => w.word);
+    },
+    /** Definition + part of speech + syllables of a word. */
+    async describe(word) {
+      const list = await this.query({ sp: word, md: 'dpsf', max: 3, ipa: 0 }, { ttl: 7 * 86400 });
+      const exact = list.find((w) => w.word.toLowerCase() === String(word).toLowerCase()) || list[0];
+      if (!exact) return null;
+      const defs = (exact.defs || []).map((d) => {
+        const [pos, text] = String(d).split('\t');
+        return { part_of_speech: pos, text: text || pos };
+      });
+      return {
+        word: exact.word,
+        syllables: exact.numSyllables !== undefined ? exact.numSyllables : null,
+        tags: exact.tags || [],
+        defs,
+        definition: defs.length ? defs[0].text : '',
+        part_of_speech: defs.length ? defs[0].part_of_speech : '',
+      };
+    },
+    /** A random real word (with optional syllable cap). */
+    async random({ max_syllables = 3, min_length = 3 } = {}) {
+      const letters = 'abcdefghijklmnoprstuw';
+      for (let tries = 0; tries < 6; tries++) {
+        const prefix = letters[GE.randi_range(0, letters.length - 1)] + letters[GE.randi_range(0, letters.length - 1)];
+        const list = await this.suggest(prefix, 40);
+        const pool = list.filter((w) => w.length >= min_length && !w.includes(' ') && (max_syllables ? count_syllables(w) <= max_syllables : true));
+        if (pool.length) return GE.choose(pool);
+      }
+      return null;
+    },
+    /** Word puzzles: how many words mean the same thing as `word`? */
+    async puzzle(word = null) {
+      const target = word || await this.random({ max_syllables: 2 });
+      if (!target) throw new Error('Could not find a word to puzzle with.');
+      const alike = await this.like(target, 40);
+      const answers = alike.filter((w) => w.word.length > 2 && !w.word.includes(' '));
+      if (answers.length < 4) throw new Error(`Not enough related words for “${target}”.`);
+      const pick = answers.slice(0, 24);
+      return { word: target, answers: pick };
+    },
+    /** Offline stand-in so word games never hard-fail. */
+    offline_puzzle() {
+      const rounds = [
+        { word: 'happy', answers: ['glad', 'cheerful', 'joyful', 'content', 'merry', 'pleased', 'elated', 'sunny'] },
+        { word: 'fast', answers: ['quick', 'swift', 'rapid', 'speedy', 'brisk', 'hasty', 'fleet', 'snappy'] },
+        { word: 'brave', answers: ['bold', 'fearless', 'valiant', 'heroic', 'gutsy', 'daring', 'stout', 'gallant'] },
+        { word: 'calm', answers: ['serene', 'peaceful', 'tranquil', 'placid', 'quiet', 'still', 'collected', 'mellow'] },
+      ];
+      return GE.choose(rounds);
+    },
+  };
+
+  /** Cheap syllable estimate for offline word filtering. */
+  function count_syllables(w) {
+    const word = String(w).toLowerCase().replace(/[^a-z]/g, '');
+    if (word.length <= 3) return 1;
+    const groups = word.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '').match(/[aeiouy]{1,2}/g);
+    return groups ? groups.length : 1;
+  }
+
   /* ------------------------------------------------------------------ */
   GE.API = {
-    http, pokemon, trivia, weather,
+    http, pokemon, trivia, weather, art, words,
     decode_entities,
+    count_syllables,
     /** clear API caches */
     clear_cache() { mem_cache.clear(); },
+    /** Every wrapped service — handy for the editor's trainer + docs. */
+    get services() {
+      return [
+        { key: 'pokemon', name: 'PokéAPI', url: pokemon.doc, what: '1025 creatures: sprites, stats, type chart' },
+        { key: 'trivia', name: 'Open Trivia DB', url: trivia.doc, what: '4000+ quiz questions across 24 categories' },
+        { key: 'weather', name: 'Open-Meteo', url: weather.doc, what: 'live weather for any coordinates' },
+        { key: 'art', name: 'Art Institute of Chicago', url: art.doc, what: '120k+ public-domain artworks and images' },
+        { key: 'words', name: 'Datamuse', url: words.doc, what: 'rhymes, synonyms, meanings, syllables' },
+      ];
+    },
   };
 })(globalThis.GE);
 
@@ -5091,7 +7079,7 @@
 (function (GE) {
   'use strict';
 
-  GE.VERSION = '0.1.0';
+  GE.VERSION = '0.2.0';
   GE.ENGINE_NAME = 'Goodness Engine';
 
   /* Everything a script might reach for, in one namespace. */
@@ -5116,6 +7104,19 @@
     Camera2D: GE.Camera2D,
     CanvasLayer: GE.CanvasLayer,
     TileMap: GE.TileMap,
+    YSort: GE.YSort,
+    ParallaxLayer: GE.ParallaxLayer,
+    ParallaxBackground: GE.ParallaxBackground,
+    CanvasModulate: GE.CanvasModulate,
+
+    /* animation */
+    Animation: GE.Animation,
+    AnimationPlayer: GE.AnimationPlayer,
+
+    /* navigation */
+    NavigationRegion2D: GE.NavigationRegion2D,
+    NavigationAgent2D: GE.NavigationAgent2D,
+    RayCast2D: GE.RayCast2D,
 
     /* physics */
     PhysicsBody2D: GE.PhysicsBody2D,
@@ -5136,6 +7137,7 @@
     HTTPRequest: GE.HTTPRequest,
     AudioPlayer: GE.AudioPlayer,
     Particles2D: GE.Particles2D,
+    PointLight2D: GE.PointLight2D,
 
     /* singletons */
     Input: GE.Input,
@@ -5148,6 +7150,10 @@
     Save: GE.Save,
     Logger: GE.Logger,
     Scripts: GE.Scripts,
+    Autoloads: GE.Autoloads,
+
+    /* project-wide singletons (autoloads) by name, e.g. Goodness.Game */
+    autoload(name) { return GE.Autoloads ? GE.Autoloads.get(name) : null; },
 
     /* value types */
     Vector2: GE.Vector2,

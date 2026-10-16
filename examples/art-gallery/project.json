@@ -1,0 +1,330 @@
+{
+  "name": "masterpiece-match",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "background": "#0e1220"
+  },
+  "main_scene": "main",
+  "assets": {
+    "scripts": {},
+    "images": {}
+  },
+  "scenes": {
+    "main": {
+      "root": {
+        "type": "Node2D",
+        "name": "Main",
+        "children": [
+          {
+            "type": "ParallaxBackground",
+            "name": "Sky",
+            "props": {
+              "layer": -1
+            },
+            "children": [
+              {
+                "type": "ParallaxLayer",
+                "name": "FarStars",
+                "props": {
+                  "motion_scale": [
+                    0.06,
+                    0.06
+                  ],
+                  "motion_mirroring": [
+                    420,
+                    300
+                  ]
+                },
+                "children": [
+                  {
+                    "type": "Sprite",
+                    "name": "S1",
+                    "props": {
+                      "position": [
+                        60,
+                        70
+                      ],
+                      "texture": "goodness://star",
+                      "scale": [
+                        0.5,
+                        0.5
+                      ],
+                      "modulate": "#8ea3c8"
+                    }
+                  },
+                  {
+                    "type": "Sprite",
+                    "name": "S2",
+                    "props": {
+                      "position": [
+                        250,
+                        210
+                      ],
+                      "texture": "goodness://diamond",
+                      "scale": [
+                        0.28,
+                        0.28
+                      ],
+                      "modulate": "#6f86ad"
+                    }
+                  },
+                  {
+                    "type": "Sprite",
+                    "name": "S3",
+                    "props": {
+                      "position": [
+                        370,
+                        120
+                      ],
+                      "texture": "goodness://circle",
+                      "scale": [
+                        0.35,
+                        0.35
+                      ],
+                      "modulate": "#5f7699"
+                    }
+                  },
+                  {
+                    "type": "Sprite",
+                    "name": "S4",
+                    "props": {
+                      "position": [
+                        150,
+                        260
+                      ],
+                      "texture": "goodness://star",
+                      "scale": [
+                        0.3,
+                        0.3
+                      ],
+                      "modulate": "#7d92b8"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "ParallaxLayer",
+                "name": "NearStars",
+                "props": {
+                  "motion_scale": [
+                    0.22,
+                    0.18
+                  ],
+                  "motion_mirroring": [
+                    520,
+                    360
+                  ]
+                },
+                "children": [
+                  {
+                    "type": "Sprite",
+                    "name": "N1",
+                    "props": {
+                      "position": [
+                        90,
+                        40
+                      ],
+                      "texture": "goodness://star",
+                      "scale": [
+                        0.75,
+                        0.75
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Sprite",
+                    "name": "N2",
+                    "props": {
+                      "position": [
+                        430,
+                        300
+                      ],
+                      "texture": "goodness://diamond",
+                      "scale": [
+                        0.5,
+                        0.5
+                      ],
+                      "modulate": "#ffd257"
+                    }
+                  },
+                  {
+                    "type": "Sprite",
+                    "name": "N3",
+                    "props": {
+                      "position": [
+                        330,
+                        60
+                      ],
+                      "texture": "goodness://circle",
+                      "scale": [
+                        0.4,
+                        0.4
+                      ],
+                      "modulate": "#9fe8c5"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Node2D",
+            "name": "Board",
+            "script": "\n{\n  extends: 'Node2D',\n\n  /* grid geometry — 8 pairs on a 4x4 board */\n  cols: 4, rows: 4, total: 8,\n  card_w: 190, card_h: 150, gap: 18, origin_x: 233, origin_y: 52,\n\n  cards: [], picked: [], busy: false, matches: 0, moves: 0, elapsed: 0, done: false,\n\n  async _ready() {\n    this.hud = this.get_node('../HUD');\n    this.status = this.hud.get_node('Status');\n    this.moves_label = this.hud.get_node('Moves');\n    this.bar = this.hud.get_node('Pairs');\n    this.sparkle = this.get_node('../Sparkle');\n    this.hud.get_node('NewBtn').connect('pressed', () => this.new_gallery());\n\n    /* the card back is generated at runtime — no image files anywhere */\n    this.back_tex = Goodness.ProceduralTextures.create_custom('art_card_back', 128, (ctx, s) => {\n      const g = ctx.createLinearGradient(0, 0, s, s);\n      g.addColorStop(0, '#2b3a63');\n      g.addColorStop(1, '#141d33');\n      ctx.fillStyle = g;\n      ctx.fillRect(0, 0, s, s);\n      ctx.strokeStyle = '#4fd38c';\n      ctx.lineWidth = 7;\n      ctx.strokeRect(7, 7, s - 14, s - 14);\n      ctx.fillStyle = 'rgba(159,232,197,0.9)';\n      ctx.font = 'bold 62px \"Segoe UI\", sans-serif';\n      ctx.textAlign = 'center';\n      ctx.textBaseline = 'middle';\n      ctx.fillText('⚡', s / 2, s / 2 + 3);\n    });\n\n    await this.new_gallery();\n  },\n\n  /* ---------------- round setup ---------------- */\n  async new_gallery() {\n    this._clear();\n    this.done = false;\n    this.matches = 0; this.moves = 0; this.elapsed = 0;\n    this.moves_label.text = 'Moves: 0   Pairs: 0 / ' + this.total;\n    this.bar.value = 0;\n    this.status.text = 'Contacting the Art Institute of Chicago…';\n\n    let deck = null;\n    try {\n      deck = await API.art.collection(this.total, { query: 'painting', public_domain: true });\n      this.online = true;\n    } catch (err) {\n      deck = API.art.offline_deck(this.total);\n      this.online = false;\n    }\n    if (!deck || !deck.length) {\n      deck = API.art.offline_deck(this.total);\n      this.online = false;\n    }\n\n    this.artworks = deck;\n    const faces = [];\n    for (const a of deck) { faces.push(a); faces.push(a); }   /* two cards per artwork */\n    this._shuffle(faces);\n\n    faces.forEach((art, i) => this._make_card(i, art));\n\n    this.status.text = this.online\n      ? 'Live gallery: ' + deck.length + ' public-domain works · click a card'\n      : 'Offline gallery — procedural stand-ins · click a card';\n    SFX.spawn();\n  },\n\n  _shuffle(list) {\n    for (let i = list.length - 1; i > 0; i--) {\n      const j = randi_range(0, i);\n      const t = list[i]; list[i] = list[j]; list[j] = t;\n    }\n  },\n\n  _clear() {\n    for (const c of this.cards) c.queue_free();\n    this.cards = [];\n    this.picked = [];\n    this.busy = false;\n  },\n\n  _make_card(i, art) {\n    const col = i % this.cols, row = Math.floor(i / this.cols);\n    const x = this.origin_x + col * (this.card_w + this.gap) + this.card_w / 2;\n    const y = this.origin_y + row * (this.card_h + this.gap) + this.card_h / 2;\n\n    const slot = new Goodness.Node2D();\n    slot.name = 'Card' + i;\n    slot.position = new Vector2(x, y + 340);      /* dealt in from below */\n    slot.art = art;\n    slot.revealed = false;\n    slot.matched = false;\n\n    /* underside */\n    slot.back = new Goodness.Sprite();\n    slot.back.name = 'Back';\n    slot.back.texture = this.back_tex;\n    const bs = Math.min(this.card_w / 128, this.card_h / 128);\n    slot.back.scale = new Vector2(bs, bs);\n    slot.add_child(slot.back);\n\n    /* artwork side (loaded asynchronously) */\n    slot.face = new Goodness.Sprite();\n    slot.face.name = 'Face';\n    slot.face.visible = false;\n    slot.add_child(slot.face);\n    Assets.load_texture(art.image_url || 'goodness://square').then((tex) => {\n      if (!tex || slot._freed) return;\n      slot.face.texture = tex;\n      const w = tex.width || 128, h = tex.height || 128;\n      const sc = Math.min(this.card_w / w, this.card_h / h);\n      slot.face.scale = new Vector2(sc, sc);\n    });\n\n    /* one AnimationPlayer per card: flip, match pop, wrong-pair shake */\n    const anim = new Goodness.AnimationPlayer();\n    anim.name = 'Anim';\n    slot.add_child(anim);\n    anim.animations = {\n      flip: { length: 0.28, tracks: [\n        { property: 'scale.x', keys: [[0, 1], [0.14, 0.03, 'sine_in'], [0.28, 1, 'sine_out']] },\n        { method: '_flip_mid', at: 0.14 },\n      ] },\n      pop: { length: 0.45, tracks: [\n        { property: 'scale', keys: [[0, [1, 1]], [0.18, [1.16, 1.16], 'back_out'], [0.45, [1, 1], 'sine_out']] },\n        { property: 'rotation', keys: [[0, 0], [0.2, 3, 'sine_out'], [0.45, 0]] },\n      ] },\n      shake: { length: 0.32, tracks: [\n        { property: 'rotation', keys: [[0, 0], [0.08, -5], [0.16, 5], [0.24, -3], [0.32, 0]] },\n      ] },\n    };\n    /* the flip's midpoint swaps the visible side (method track) */\n    slot._flip_mid = () => {\n      slot.revealed = !slot.revealed;\n      slot.back.visible = !slot.revealed;\n      slot.face.visible = slot.revealed;\n      SFX.blip();\n    };\n    slot.flip = () => anim.play('flip', { restart: true });\n    slot.play_anim = (n) => anim.play(n);\n\n    this.add_child(slot);\n    this.cards.push(slot);\n\n    /* deal-in: a tween per card, staggered by index */\n    const tween = slot.create_tween();\n    if (tween) {\n      tween.interval(i * 0.05)\n        .tween_property(slot, 'position', new Vector2(x, y), 0.5)\n        .set_trans('back_out');\n    }\n  },\n\n  /* ---------------- input ---------------- */\n  _input(ev) {\n    if (ev.type === 'key' && ev.pressed) {\n      if (ev.code === 'KeyR' || ev.code === 'Space') { this.new_gallery(); return true; }\n      return false;\n    }\n    if (ev.type !== 'mouse' || !ev.pressed || ev.button !== 0) return false;\n    if (this.busy || this.done) return false;\n\n    /* mouse events arrive in screen space — convert to the world */\n    const world = Input.get_world_mouse(this.tree);\n    for (const card of this.cards) {\n      if (card.matched || card.revealed || !card.face) continue;\n      const gp = card.global_position;\n      if (Math.abs(world.x - gp.x) <= this.card_w / 2 && Math.abs(world.y - gp.y) <= this.card_h / 2) {\n        card.flip();\n        SFX.click();\n        this.picked.push(card);\n        if (this.picked.length === 2) { this.busy = true; this._settle = 0.62; }\n        return true;\n      }\n    }\n    return false;\n  },\n\n  /* ---------------- game loop ---------------- */\n  _process(delta) {\n    if (!this.done) this.elapsed += delta;\n    if (this.busy) {\n      this._settle -= delta;\n      if (this._settle <= 0) this._resolve();\n    }\n    this.moves_label.text = 'Moves: ' + this.moves + '   Pairs: ' + this.matches + ' / ' + this.total +\n      '   Time: ' + this.elapsed.toFixed(1) + 's';\n  },\n\n  _resolve() {\n    this.busy = false;\n    const a = this.picked[0], b = this.picked[1];\n    this.picked = [];\n    this.moves++;\n\n    if (a.art === b.art) {\n      a.matched = b.matched = true;\n      this.matches++;\n      this.bar.value = this.matches / this.total * 100;\n      SFX.coin();\n      for (const c of [a, b]) {\n        c.play_anim('pop');\n        this.sparkle.global_position = c.global_position;\n        this.sparkle.burst(20);\n      }\n      this.status.text = '✨ ' + a.art.title + ' — ' + a.art.artist +\n        (a.art.date ? ' · ' + a.art.date : '');\n      if (this.matches >= this.total) this._win();\n    } else {\n      for (const c of [a, b]) { c.play_anim('shake'); c.flip(); }\n      SFX.hit();\n      this.status.text = 'Not a pair — keep looking.';\n    }\n  },\n\n  _win() {\n    this.done = true;\n    SFX.win();\n    const best = Save.get('art_best_moves', null);\n    const is_best = best === null || this.moves < best;\n    if (is_best) Save.set('art_best_moves', this.moves);\n    this.status.text = 'Gallery complete! ' + this.moves + ' moves in ' + this.elapsed.toFixed(1) + 's' +\n      (is_best ? ' — NEW BEST!' : ' (best: ' + best + ' moves)') + '   ·   press R for a new gallery';\n    this.bar.value = 100;\n    for (const c of this.cards) c.play_anim('pop');\n    this.sparkle.global_position = new Vector2(640, 700);\n    this.sparkle.burst(60);\n  },\n}",
+            "children": []
+          },
+          {
+            "type": "Particles2D",
+            "name": "Sparkle",
+            "props": {
+              "emitting": false,
+              "amount": 0,
+              "lifetime": 0.85,
+              "spread": 360,
+              "direction": 0,
+              "speed_min": 90,
+              "speed_max": 340,
+              "gravity": [
+                0,
+                520
+              ],
+              "colors": [
+                "#ffd257",
+                "#7ef0b0",
+                "#9cc4ff",
+                "#ff8fd4"
+              ],
+              "scale_min": 0.4,
+              "scale_max": 1.1
+            }
+          },
+          {
+            "type": "CanvasLayer",
+            "name": "HUD",
+            "children": [
+              {
+                "type": "Label",
+                "name": "Title",
+                "props": {
+                  "position": [
+                    233,
+                    8
+                  ],
+                  "text": "🖼️  Masterpiece Match",
+                  "font_size": 26,
+                  "size": [
+                    700,
+                    34
+                  ],
+                  "color": "#eaf1ff",
+                  "outline": 2
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Moves",
+                "props": {
+                  "position": [
+                    233,
+                    690
+                  ],
+                  "text": "Moves: 0   Pairs: 0 / 8",
+                  "font_size": 18,
+                  "size": [
+                    600,
+                    24
+                  ],
+                  "color": "#9db0d0"
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Status",
+                "props": {
+                  "position": [
+                    233,
+                    718
+                  ],
+                  "text": "Loading…",
+                  "font_size": 17,
+                  "size": [
+                    820,
+                    26
+                  ],
+                  "color": "#7ef0b0"
+                }
+              },
+              {
+                "type": "Panel",
+                "name": "BarPanel",
+                "props": {
+                  "position": [
+                    233,
+                    676
+                  ],
+                  "size": [
+                    820,
+                    4
+                  ],
+                  "color": "#1b2438"
+                }
+              },
+              {
+                "type": "ProgressBar",
+                "name": "Pairs",
+                "props": {
+                  "position": [
+                    233,
+                    676
+                  ],
+                  "size": [
+                    820,
+                    6
+                  ],
+                  "value": 0,
+                  "fill_color": "#4fd38c",
+                  "show_text": false
+                }
+              },
+              {
+                "type": "Button",
+                "name": "NewBtn",
+                "props": {
+                  "position": [
+                    1055,
+                    690
+                  ],
+                  "size": [
+                    190,
+                    46
+                  ],
+                  "text": "🎨 New gallery",
+                  "font_size": 17
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Credit",
+                "props": {
+                  "position": [
+                    1055,
+                    8
+                  ],
+                  "text": "art: Art Institute of Chicago (CC0)",
+                  "font_size": 13,
+                  "size": [
+                    220,
+                    40
+                  ],
+                  "color": "#5f6f8f",
+                  "autowrap": true
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

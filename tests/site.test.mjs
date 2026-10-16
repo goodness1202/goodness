@@ -90,7 +90,8 @@ console.log('\n■ Docs reader (docs/index.html)');
   for (const s of [...doc.querySelectorAll('script')]) dom.window.eval(s.textContent);
   await wait(300);
 
-  ok(doc.querySelectorAll('#chapters .chapter').length === 11, `sidebar lists 11 chapters (${doc.querySelectorAll('#chapters .chapter').length})`);
+  const chapter_count = doc.querySelectorAll('#chapters .chapter').length;
+  ok(chapter_count === 14, `sidebar lists 14 chapters (${chapter_count})`);
   ok(doc.querySelector('#content h1') && doc.querySelector('#content h1').textContent.includes('Getting Started'), 'chapter 01 rendered as markdown');
   ok(doc.querySelectorAll('#content h2').length >= 3, 'headings rendered');
   ok(doc.querySelectorAll('#content pre').length >= 1, 'code blocks rendered');
@@ -104,6 +105,48 @@ console.log('\n■ Docs reader (docs/index.html)');
   await wait(300);
   ok(doc.querySelector('#content').textContent.includes('PokéAPI'), 'hash navigation loads the Free APIs chapter');
   ok(doc.title.includes('Free APIs'), 'document title updates');
+
+  /* the API chapter must document all five wrappers and the trainer */
+  const api_text = doc.querySelector('#content').textContent;
+  for (const name of ['API.pokemon', 'API.trivia', 'API.weather', 'API.art', 'API.words']) {
+    ok(api_text.includes(name), `Free APIs chapter documents ${name}`);
+  }
+  ok(/API Trainer/.test(api_text), 'Free APIs chapter points at the in-editor trainer');
+
+  /* the newer chapters load and render like the old ones */
+  for (const [hash, needle] of [['11-animation.md', 'AnimationPlayer'], ['12-navigation.md', 'NavigationAgent2D'], ['13-world-layers.md', 'motion_scale']]) {
+    dom.window.location.hash = hash;
+    dom.window.dispatchEvent(new dom.window.Event('hashchange'));
+    await wait(500);
+    const text = doc.querySelector('#content').textContent;
+    ok(text.includes(needle), `${hash} renders (${needle})`);
+    ok(doc.querySelectorAll('#content pre').length >= 1, `${hash} has code samples`);
+  }
+}
+
+/* ================================================================== */
+console.log('\n■ Examples gallery + landing page (every advertised game exists)');
+{
+  const gallery = readFileSync(path.join(ROOT, 'examples/index.html'), 'utf8');
+  const cards = [...gallery.matchAll(/examples\/([a-z0-9-]+)\/project\.json/g)].map((m) => m[1]);
+  const unique = [...new Set(cards)];
+  ok(unique.length === 9, `gallery advertises 9 games (${unique.length})`);
+  for (const slug of unique) {
+    let exists = true;
+    try { readFileSync(path.join(ROOT, 'examples', slug, 'project.json')); } catch (e) { exists = false; }
+    ok(exists, `examples/${slug}/project.json exists for the gallery card`);
+  }
+  for (const slug of ['art-gallery', 'dungeon-delve', 'word-duel']) {
+    ok(gallery.includes(`editor.html?import=examples/${slug}/project.json`), `gallery card links ${slug} to the editor`);
+  }
+
+  const landing = readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  ok(landing.includes('docs/index.html#11-animation.md'), 'landing page links the animation chapter');
+  ok(/Art Institute|API\.art/.test(landing), 'landing page advertises the art API');
+  ok(/Datamuse|API\.words/.test(landing), 'landing page advertises the Datamuse API');
+
+  const player_page = readFileSync(path.join(ROOT, 'player.html'), 'utf8');
+  ok(player_page.length > 100, 'player.html is present');
 }
 
 /* ================================================================== */
@@ -135,6 +178,37 @@ console.log('\n■ Player (player.html?project=examples/hello/project.json)');
 }
 
 /* ================================================================== */
+console.log('\n■ Player + the new node types (player.html?project=examples/dungeon-delve)');
+{
+  const dom = loadPage('player.html', { url: 'http://localhost/player.html?project=examples/dungeon-delve/project.json' });
+  const doc = dom.window.document;
+  await loadScripts(dom, ENGINE_FILES);
+  const inline = [...doc.querySelectorAll('script')].map((s) => s.textContent).join('\n');
+  try { dom.window.eval(inline); } catch (e) { /* already-defined guards */ }
+  await wait(600);
+
+  const GE = dom.window.GE;
+  const engines = GE && GE.OS ? GE.OS.engines : [];
+  ok(engines.length >= 1, 'dungeon-delve boots in the player page');
+  if (engines.length) {
+    const tree = engines[0].tree;
+    ok(!!tree.current_scene, `dungeon scene loaded (${tree.current_scene && tree.current_scene.name})`);
+    /* the autoload declared in the project must exist under /root */
+    ok(!!GE.Autoloads.get('Run'), `autoload brought up in the browser (${GE.Autoloads.names().join(', ')})`);
+    const nav = tree.current_scene.get_node('Nav') || tree.current_scene.get_node('NavigationRegion2D');
+    ok(!!nav && nav.is_baked() === false || !!nav, 'navigation region present');
+    for (let i = 0; i < 120; i++) engines[0].step(1 / 60);
+    const slimes = [];
+    (function collect(n) { if (/Slime/.test(n.name)) slimes.push(n); for (const c of n.children) collect(c); })(tree.current_scene);
+    ok(slimes.length >= 1, `slimes spawned (${slimes.length})`);
+    const agents = [];
+    (function collect(n) { if (n instanceof GE.NavigationAgent2D) agents.push(n); for (const c of n.children) collect(c); })(tree.current_scene);
+    ok(agents.length >= 1, `navigation agents running (${agents.length})`);
+    if (agents.length) ok(agents[0].get_path().length >= 0, 'agent answers path queries in the browser');
+  }
+}
+
+/* ================================================================== */
 console.log('\n■ Editor one-click example import (editor.html?import=…)');
 {
   const dom = loadPage('editor.html', { url: 'http://localhost/editor.html?import=examples/coin-rush/project.json' });
@@ -161,6 +235,37 @@ console.log('\n■ Editor one-click example import (editor.html?import=…)');
   await wait(200);
   const after = doc.querySelectorAll('#scene-tree .tree-node').length;
   ok(after < before, `editing the imported scene works (tree ${before} → ${after}, subtree included)`);
+}
+
+/* ================================================================== */
+console.log('\n■ Editor import of a v0.2 project (lights, animation, navigation)');
+{
+  const dom = loadPage('editor.html', { url: 'http://localhost/editor.html?import=examples/dungeon-delve/project.json' });
+  const doc = dom.window.document;
+  await loadScripts(dom, [...ENGINE_FILES, 'editor/tutorials.js', 'editor/api_panel.js', 'editor/editor.js']);
+  await wait(800);
+  const rows = [...doc.querySelectorAll('#scene-tree .tree-node')].map((r) => r.textContent);
+  for (const name of ['Level', 'Nav', 'Night', 'Torches', 'Enemies', 'Player', 'HUD']) {
+    ok(rows.some((r) => r.includes(name)), `imported tree shows ${name}`);
+  }
+  ok(doc.getElementById('scene-title').textContent.includes('dungeon-delve'), 'scene title shows the imported project');
+
+  /* selecting a new node type renders a real inspector (props from its def) */
+  const nightRow = [...doc.querySelectorAll('#scene-tree .tree-node')].find((r) => r.textContent.includes('Night'));
+  nightRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(200);
+  const inspector = doc.getElementById('inspector').textContent;
+  ok(inspector.includes('CanvasModulate'), 'inspector knows the CanvasModulate class');
+  ok(/tints the entire world/i.test(inspector), 'inspector shows the class description');
+
+  const torchRow = [...doc.querySelectorAll('#scene-tree .tree-node')].find((r) => r.textContent.includes('Torches'));
+  torchRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(200);
+  ok(doc.getElementById('inspector').textContent.length > 100, 'scripted node inspector renders');
+
+  const GE = dom.window.GE;
+  ok(GE.Classes.get('PointLight2D') && GE.Classes.get('CanvasModulate'), 'new classes are in the editor registry');
+  ok(GE.Classes.all().length >= 32, `node palette carries the whole registry (${GE.Classes.all().length})`);
 }
 
 /* ================================================================== */

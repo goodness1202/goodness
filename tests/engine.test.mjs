@@ -55,7 +55,7 @@ section('Manifest & API surface');
     ok(GE.api[single], `GE.api.${single} exported`);
   }
   ok(GE.Classes.all().length >= 23, `class registry populated (${GE.Classes.all().length} classes)`);
-  eq(GE.VERSION, '0.1.0', 'version string');
+  eq(GE.VERSION, '0.2.0', 'version string');
 }
 
 /* ================================================================== */
@@ -489,6 +489,95 @@ section('Save system');
 }
 
 /* ================================================================== */
+section('Lights — CanvasModulate & PointLight2D');
+{
+  const calls = [];
+  const mkctx = () => new Proxy({}, {
+    get(t, k) {
+      if (k === 'canvas') return { width: 640, height: 360 };
+      if (k === 'measureText') return () => ({ width: 10 });
+      if (k === 'createRadialGradient' || k === 'createLinearGradient') {
+        return (...a) => { calls.push(k + '(' + a.join(',') + ')'); return { addColorStop() {} }; };
+      }
+      if (k === 'state') return calls;
+      return (...a) => { calls.push(k + '(' + a.join(',') + ')'); };
+    },
+    set: (t, k, v) => { calls.push('#' + k + '=' + v); return true; },
+  });
+  const canvas = { width: 640, height: 360, getContext: () => mkctx(), addEventListener() {}, removeEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 640, height: 360 }), style: {} };
+  const project = {
+    name: 'lights', settings: { width: 640, height: 360, background: '#000' }, main_scene: 'main', assets: { scripts: {}, images: {} },
+    scenes: { main: { root: { type: 'Node2D', name: 'Main', children: [
+      { type: 'ColorRect', name: 'Floor', props: { position: [100, 100], size: [200, 40], color: '#333333' } },
+      { type: 'PointLight2D', name: 'Torch', props: { position: [150, 120], color: '#ffb347', energy: 1.4, texture_scale: 2 } },
+      { type: 'CanvasModulate', name: 'Night', props: { color: '#5566aa' } },
+    ] } } },
+  };
+  const engine = new GE.Engine({ canvas, project, width: 640, height: 360 });
+  await engine.start();
+  const scene = engine.tree.current_scene;
+  const torch = scene.get_node('Torch');
+  const night = scene.get_node('Night');
+  ok(torch instanceof GE.PointLight2D, 'PointLight2D built from project JSON');
+  ok(night instanceof GE.CanvasModulate, 'CanvasModulate built from project JSON');
+  eq(Math.round(torch.radius), 256, 'radius follows texture_scale');
+  eq(engine.tree._modulates.length, 1, 'the scene tree tracks the modulate node');
+
+  calls.length = 0;
+  engine.render();
+  const log = calls.join('\n');
+  const floor_at = log.indexOf('fillRect(-100,-20,200,40)');  /* ColorRect draws in its own space */
+  const additive_at = log.indexOf('#globalCompositeOperation=lighter');
+  const tint_at = log.lastIndexOf('#globalCompositeOperation=multiply');
+  ok(floor_at >= 0, 'world geometry drew');
+  ok(additive_at > floor_at, 'the light paints after the geometry it illuminates');
+  ok(tint_at > additive_at, 'CanvasModulate tints the finished world last');
+  /* headless has no <canvas>, so the light falls back to a live radial gradient */
+  ok(log.includes('createRadialGradient(0,0,0,0,0,256)'), 'the light builds a radial gradient at its radius');
+  ok(log.includes('arc(0,0,256,'), 'the fallback glow is a circle of the right size');
+
+  /* switching things off must actually remove the work */
+  torch.enabled = false;
+  night.visible = false;
+  calls.length = 0;
+  engine.render();
+  const off = calls.join('\n');
+  ok(!off.includes('drawImage(-256,-256,512,512)'), 'disabled lights draw nothing');
+  ok(!off.includes('#globalCompositeOperation=multiply'), 'a hidden CanvasModulate does not tint');
+
+  /* flicker + fade are scriptable, and the tint is animatable */
+  night.visible = true;
+  const before_energy = torch.energy;
+  torch.flicker(0.3);
+  ok(torch.energy !== before_energy, 'flicker() changes energy');
+  torch.set_color('#66ff99');
+  eq(torch.color.to_hex(), '#66ff99', 'set_color accepts hex');
+  night.set_color('#0b1030');
+  eq(night.color.to_hex(), '#0b1030', 'CanvasModulate.set_color works');
+  ok(night.enabled, 'a non-white tint reports enabled');
+  night.set_color('#ffffff');
+  ok(!night.enabled, 'a white tint is a no-op');
+  night.fade_to('#000033', 0.5);
+  await engine.pump(30);
+  ok(night.color.b < 0.5, `fade_to tweens the tint (b=${night.color.b.toFixed(2)})`);
+  ok(night.color instanceof GE.Color, 'a tweened colour stays a Color (not a plain object)');
+
+  /* colour tweens are the most common tween in a game — pin the behaviour */
+  const rect = scene.get_node('Floor');
+  rect.create_tween().tween_property(rect, 'color', '#220000', 0.4);
+  await engine.pump(30);
+  ok(rect.color instanceof GE.Color && rect.color.r > rect.color.b, `color tween interpolated (${rect.color.to_hex()})`);
+  const vec = scene.get_node('Torch');
+  vec.create_tween().tween_property(vec, 'position', new GE.Vector2(400, 300), 0.4);
+  await engine.pump(12);
+  const mid = vec.position.x;
+  ok(vec.position instanceof GE.Vector2 && mid > 150 && mid < 400, `vector tween interpolates (x=${mid.toFixed(0)})`);
+  await engine.pump(20);
+  ok(Math.round(vec.position.x) === 400 && Math.round(vec.position.y) === 300, 'vector tween lands exactly on the target');
+  engine.stop();
+}
+
+/* ================================================================== */
 section('API services (stubbed fetch)');
 {
   const realFetch = globalThis.fetch;
@@ -636,6 +725,430 @@ section('Engine end-to-end (headless)');
       failed++; console.error('  ✗ e2e async:', e.message, e.stack);
     }
   })();
+}
+
+/* ================================================================== */
+section('Renderer — transforms, layers, y-sort');
+{
+  const calls = [];
+  const mkctx = () => new Proxy({}, {
+    get(t, k) {
+      if (k === 'canvas') return { width: 640, height: 360 };
+      const fns = ['save','restore','translate','scale','rotate','setTransform','fillRect','drawImage','beginPath','arc','fill','stroke','moveTo','lineTo','closePath','clearRect','fillText','strokeText','measureText','createLinearGradient','createRadialGradient','setLineDash','ellipse','rect','strokeRect','clip'];
+      if (fns.includes(k)) return (...a) => { calls.push(k + '(' + a.join(',') + ')'); if (k === 'measureText') return { width: 10 }; };
+      return 1;
+    },
+    set: () => true,
+  });
+  const canvas = { width: 640, height: 360, getContext: () => mkctx(), addEventListener() {}, removeEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 640, height: 360 }), style: {} };
+
+  const project = {
+    name: 'rt', settings: { width: 640, height: 360, background: '#000' }, main_scene: 'main',
+    assets: { scripts: {}, images: {} },
+    scenes: { main: { root: { type: 'Node2D', name: 'Main', children: [
+      { type: 'Sprite', name: 'Ball', props: { position: [500, 300], texture: 'goodness://ball' } },
+      { type: 'Node2D', name: 'Rot', props: { position: [100, 100], rotation: 90, scale: [2, 2] }, children: [
+        { type: 'Sprite', name: 'Child', props: { position: [10, 0], texture: 'goodness://star' } },
+      ] },
+      { type: 'CanvasLayer', name: 'HUD', props: { layer: 5 }, children: [
+        { type: 'Label', name: 'Text', props: { position: [20, 30], text: 'hi' } },
+      ] },
+    ] } } },
+  };
+  const engine = new GE.Engine({ canvas, project, width: 640, height: 360 });
+  await engine.start();
+  calls.length = 0;
+  engine.render();
+  const joined = calls.join('\n');
+  ok(joined.includes('translate(500,300)'), 'sprite transform applied (translate 500,300)');
+  ok(joined.includes('rotate(1.5707963267948966)'), 'rotation converted to radians');
+  ok(joined.includes('scale(2,2)'), 'scale applied');
+  ok(joined.includes('rotate(1.5707963267948966)\nscale(2,2)'), 'rotate happens before scale (Godot order)');
+  ok(joined.includes('fillText(hi,0,0)'), 'canvas-layer label drawn in local space');
+  const ball_ix = joined.indexOf('translate(500,300)');
+  const label_ix = joined.indexOf('fillText(hi,0,0)');
+  ok(ball_ix < label_ix, 'canvas layers draw after the world pass');
+  ok(joined.includes('fillRect(-16,-16,32,32)'), 'placeholder sprite still draws its own size');
+
+  /* y-sorting: draw order follows world Y */
+  const project2 = {
+    name: 'ys', settings: { width: 320, height: 200 }, main_scene: 'main', assets: { scripts: {}, images: {} },
+    scenes: { main: { root: { type: 'Node2D', name: 'Main', children: [
+      { type: 'YSort', name: 'Depth', children: [
+        { type: 'Sprite', name: 'Front', props: { position: [0, 120], texture: 'goodness://square' } },
+        { type: 'Sprite', name: 'Back', props: { position: [0, -120], texture: 'goodness://square' } },
+      ] },
+    ] } } },
+  };
+  const engine2 = new GE.Engine({ canvas, project: project2, width: 320, height: 200 });
+  await engine2.start();
+  const items = [];
+  engine2._renderer._collect = function (node, z, screen, oi = { i: 0 }) {
+    /* collect draw order without drawing */
+    if (node._freed || node.visible === false) return;
+    if (node instanceof GE.Node2D) items.push({ name: node.name, z: z + (node.z_index || 0) });
+    const kids = node.y_sort_enabled ? node.children.slice().sort((a, b) => a.global_position.y - b.global_position.y) : node.children;
+    kids.forEach((c, i) => this._collect(c, z + (node.z_index || 0) + (node.y_sort_enabled ? (i + 1) * 0.0001 : 0), screen, oi));
+  };
+  items.length = 0;
+  engine2._renderer._collect(engine2.tree.current_scene, 0, false);
+  const back = items.find((i) => i.name === 'Back');
+  const front = items.find((i) => i.name === 'Front');
+  ok(back && front && back.z < front.z, `y-sort paints the higher node later (back ${back && back.z} < front ${front && front.z})`);
+  engine2.stop();
+
+  /* particles must be painted inside the emitter's own transform, so a
+     Particles2D deep in the tree emits where the player sees it */
+  const project3 = {
+    name: 'pt', settings: { width: 640, height: 360, background: '#000' }, main_scene: 'main', assets: { scripts: {}, images: {} },
+    scenes: { main: { root: { type: 'Node2D', name: 'Main', children: [
+      { type: 'Node2D', name: 'Holder', props: { position: [100, 50] }, children: [
+        { type: 'Particles2D', name: 'Sparks',
+          props: { position: [200, 150], emitting: false, amount: 4, lifetime: 10, gravity: [0, 0], speed_min: 0, speed_max: 0 } },
+      ] } ] } } },
+  };
+  const engine3 = new GE.Engine({ canvas, project: project3, width: 640, height: 360 });
+  await engine3.start();
+  const sparks = engine3.tree.current_scene.get_node('Holder').get_node('Sparks');
+  sparks.burst(2);
+  calls.length = 0;
+  engine3.render();
+  const arcs = calls.filter((c) => c.startsWith('arc('));
+  ok(arcs.length === 2, `a burst draws one circle per particle (${arcs.length})`);
+  ok(arcs.every((a) => a.startsWith('arc(0,0,')), 'particle geometry is local to the emitter node');
+  const joined3 = calls.join('\n');
+  ok(joined3.includes('translate(300,200)'), "the emitter's world transform (100+200, 50+150) is applied");
+  const particle_transform = joined3.lastIndexOf('translate(300,200)');
+  ok(particle_transform >= 0 && particle_transform < joined3.indexOf('arc(0,0,'), 'particles draw after their transform is pushed');
+  engine3.stop();
+  engine.stop();
+}
+
+/* ================================================================== */
+section('Parallax');
+{
+  const scene = new GE.Node2D(); scene.name = 'Main';
+  const bg = new GE.ParallaxBackground(); bg.name = 'Sky'; scene.add_child(bg);
+  eq(bg.layer, -1, 'ParallaxBackground defaults to layer -1 (behind the world)');
+  const layer = new GE.ParallaxLayer(); layer.name = 'Far';
+  layer.motion_scale = new GE.Vector2(0.25, 0.25);
+  const star = new GE.Sprite(); star.name = 'Star'; star.texture_src = 'goodness://star';
+  layer.add_child(star); bg.add_child(layer);
+  const engine = new GE.Engine({ headless: true });
+  engine.tree.set_current_scene(scene, 'main');
+  bg._stage_parallax({ x: 320, y: 180, zoom: 1 }, { w: 640, h: 360 });
+  star._update_world();
+  eq(Math.round(layer._parallax_origin.x), 240, 'layer origin x = center + (0 - cam.x) * motion_scale');
+  eq(Math.round(layer._parallax_origin.y), 135, 'layer origin y');
+  eq(Math.round(star._world.x), 240, 'child world position follows the layer origin');
+  eq(layer.scroll_offset.x, 240, 'scroll_offset exposes the computed offset');
+
+  /* motion_scale 0 = pinned to the screen */
+  layer.motion_scale = new GE.Vector2(0, 0);
+  bg._stage_parallax({ x: 900, y: 700, zoom: 1 }, { w: 640, h: 360 });
+  eq(layer._parallax_origin.x, 320, 'motion_scale 0 stays centered when the camera moves');
+  eq(layer._parallax_origin.y, 180, 'motion_scale 0 stays centered (y)');
+
+  /* mirroring produces repeat passes inside the viewport */
+  layer.motion_scale = new GE.Vector2(0.5, 0.5);
+  layer.motion_mirroring = new GE.Vector2(320, 0);
+  bg._stage_parallax({ x: 1000, y: 0, zoom: 1 }, { w: 640, h: 360 });
+  ok(layer._mirror_shifts.length >= 2, `mirroring schedules repeat passes (${layer._mirror_shifts.length})`);
+  ok(layer._parallax_origin.x >= -160 && layer._parallax_origin.x <= 160, 'mirrored origin wraps into [-m/2, m/2)');
+  engine.stop();
+}
+
+/* ================================================================== */
+section('AnimationPlayer');
+{
+  const scene = new GE.Node2D(); scene.name = 'Main';
+  const box = new GE.Sprite(); box.name = 'Box'; scene.add_child(box);
+  const anim = new GE.AnimationPlayer(); anim.name = 'Anim'; scene.add_child(anim);
+  let pokes = 0;
+  box.poke = () => { pokes++; };
+
+  anim.animations = {
+    slide: { length: 1, tracks: [{ property: 'position.x', keys: [[0, 0], [1, 100]] }] },
+    spin: { length: 2, tracks: [{ property: 'rotation', keys: [[0, 0], [2, 360]], interp: 'nearest' }] },
+    tint: { length: 1, tracks: [{ node: 'Box', property: 'modulate', keys: [[0, '#ffffff'], [1, '#ff0000']] }] },
+    poke: { length: 1, tracks: [{ node: 'Box', method: 'poke', at: 0.5 }, { node: 'Box', property: 'position.y', keys: [[0, 0], [1, 50]] }] },
+    bob: { length: 1, loop: 'pingpong', tracks: [{ property: 'position.y', keys: [[0, 0], [1, 100]] }] },
+  };
+  eq(anim.animation_names.length, 5, 'five animations registered');
+  eq(anim.animation_length('slide'), 1, 'animation_length');
+  eq(anim.get_animation('slide').track_count, 1, 'track count');
+  ok(anim.has_animation('slide') && !anim.has_animation('nope'), 'has_animation');
+
+  /* sampling + easing */
+  eq(anim.get_animation('slide').sample_track(anim.get_animation('slide').tracks[0], 0.5), 50, 'linear sample at 50%');
+  const eased = anim.get_animation('slide');
+  eq(eased.sample_track(eased.tracks[0], 0), 0, 'sample at t=0');
+  eq(eased.sample_track(eased.tracks[0], 1), 100, 'sample at t=1');
+  eq(anim.get_animation('spin').sample_track(anim.get_animation('spin').tracks[0], 1.99), 0, 'nearest interpolation holds the previous key');
+
+  const engine = new GE.Engine({ headless: true });
+  engine.tree.set_current_scene(scene, 'main');
+  anim.play('slide');
+  ok(anim.is_playing(), 'play() starts the animation');
+  eq(anim.current_animation, 'slide', 'current_animation set');
+  await engine.pump(30);
+  ok(scene.position.x > 40 && scene.position.x < 60, `property track animates (x=${scene.position.x.toFixed(1)})`);
+  await engine.pump(31);
+  eq(scene.position.x, 100, 'animation ends exactly on the last key');
+  eq(anim.is_playing(), false, 'non-looping animation stops');
+
+  /* method tracks + colors */
+  anim.play('poke');
+  await engine.pump(35);
+  eq(pokes, 1, 'method track fired exactly once');
+  anim.play('tint');
+  await engine.pump(60);
+  eq(box.modulate.to_hex(), '#ff0000', 'color track interpolates and writes a Color');
+
+  /* pingpong */
+  anim.play('bob');
+  await engine.pump(60);
+  const up = scene.position.y;
+  await engine.pump(40);
+  ok(scene.position.y < up, `pingpong reverses direction (${up.toFixed(1)} -> ${scene.position.y.toFixed(1)})`);
+
+  /* seek / stop / queue */
+  anim.play('slide');
+  anim.seek(1);
+  eq(scene.position.x, 100, 'seek(1) jumps to the final value');
+  anim.stop();
+  eq(anim.playing, false, 'stop() halts playback');
+  eq(anim._time, 0, 'stop() rewinds');
+  anim.play('slide');
+  anim.queue('bob');
+  anim.seek(1);
+  await engine.pump(2);
+  eq(anim.current_animation, 'bob', 'queue() plays the next animation when the first finishes');
+
+  /* runtime building + signals */
+  let started = 0, finished = 0;
+  anim.connect('animation_started', () => started++);
+  anim.connect('animation_finished', () => finished++);
+  anim.make('quick', { length: 0.2, tracks: [{ property: 'position.x', keys: [[0, 0], [0.2, 10]] }] });
+  eq(anim.current_animation, 'quick', 'make() builds and plays in one call');
+  await engine.pump(20);
+  ok(started >= 1, 'animation_started emitted');
+  ok(finished >= 1, 'animation_finished emitted');
+
+  /* a missing track target must warn, not explode */
+  anim.add_animation('ghost', { length: 0.2, tracks: [{ node: 'DoesNotExist', property: 'position.x', keys: [[0, 0], [0.2, 5]] }] });
+  anim.play('ghost');
+  await engine.pump(15);
+  ok(true, 'missing track targets are survived');
+  engine.stop();
+}
+
+/* ================================================================== */
+section('Navigation — region, agent, raycast');
+{
+  const world = new GE.Node2D(); world.name = 'World';
+  const level = new GE.TileMap(); level.name = 'Level'; level.cell_size = 32;
+  level.tiles = [
+    '#########',
+    '#.......#',
+    '#..###..#',
+    '#..#.#..#',
+    '#..###..#',
+    '#.......#',
+    '#########',
+  ];
+  world.add_child(level);
+  const nav = new GE.NavigationRegion2D(); nav.name = 'Nav'; world.add_child(nav);
+  const agent = new GE.NavigationAgent2D(); agent.name = 'Agent'; world.add_child(agent);
+
+  const engine = new GE.Engine({ headless: true });
+  engine.tree.set_current_scene(world, 'world');
+  const grid = nav.bake();
+  eq(grid.cols, 9, 'grid columns from the tilemap');
+  eq(grid.rows, 7, 'grid rows from the tilemap');
+  ok(nav.is_walkable(new GE.Vector2(48, 48)), 'open floor is walkable');
+  ok(!nav.is_walkable(new GE.Vector2(16, 16)), 'wall cells are not walkable');
+  ok(!nav.is_walkable(new GE.Vector2(10000, 0)), 'outside the map is not walkable');
+
+  const path = nav.find_path(new GE.Vector2(80, 176), new GE.Vector2(240, 48));
+  ok(path.length >= 2, `path found around the wall (${path.length} points)`);
+  const last = path[path.length - 1];
+  ok(Math.abs(last.x - 240) < 2 && Math.abs(last.y - 48) < 2, 'path ends exactly on the target');
+  ok(path.length <= 4, `string-pulling keeps the path tight (${path.length} points)`);
+  for (const p of path) ok(nav.is_walkable(p), `waypoint (${p.x},${p.y}) is on walkable ground`);
+  ok(nav.find_path(new GE.Vector2(48, 48), new GE.Vector2(48, 48)).length <= 1, 'path to yourself is trivial');
+  const rnd = nav.random_point();
+  ok(nav.is_walkable(rnd), 'random_point() lands on walkable ground');
+
+  /* agent steering a CharacterBody2D */
+  const mob = new GE.CharacterBody2D(); mob.name = 'Mob';
+  mob.shape = { type: 'circle', radius: 10 };
+  mob.position = new GE.Vector2(80, 176);
+  world.add_child(mob);
+  agent.position = new GE.Vector2(80, 176);
+  let reached = 0;
+  agent.connect('target_reached', () => reached++);
+  agent.set_target(new GE.Vector2(240, 48));
+  ok(agent.get_path().length >= 2, 'agent computes a path');
+  for (let i = 0; i < 400 && !agent.is_navigation_finished(mob.global_position); i++) {
+    agent.move_body(mob, 1 / 60, 90);
+  }
+  ok(reached >= 1, 'target_reached fired');
+  ok(mob.global_position.distance_to(new GE.Vector2(240, 48)) < 14,
+    `agent walked the body to the target (${mob.global_position.x.toFixed(0)},${mob.global_position.y.toFixed(0)})`);
+
+  /* clearance: a small radius must keep a one-tile corridor open */
+  const tight = new GE.NavigationRegion2D(); tight.name = 'Tight';
+  tight.agent_radius = 4;
+  tight.cell_size = 32;
+  tight.polygon = [[0, 0], [320, 0], [320, 64], [0, 64]];
+  tight.obstacles = [[[96, -10], [224, -10], [224, 74], [96, 74]]];
+  world.add_child(tight);
+  tight.bake();
+  ok(tight.is_walkable(new GE.Vector2(64, 32)), 'a 4px agent still fits next to an obstacle');
+  ok(!tight.is_walkable(new GE.Vector2(160, 32)), 'the obstacle itself is blocked');
+
+  /* raycasts */
+  const rc = new GE.RayCast2D(); rc.name = 'RC';
+  rc.target_position = new GE.Vector2(96, 0);        /* right, into the inner block */
+  rc.position = new GE.Vector2(48, 80);
+  world.add_child(rc);
+  await engine.pump(1);
+  rc.force_raycast_update();
+  ok(rc.is_colliding(), 'RayCast2D detects the wall');
+  ok(rc.get_collision_distance() > 0, 'collision distance reported');
+  ok(rc.get_collider() !== null, 'collider reported');
+  rc.target_position = new GE.Vector2(0, 0);
+  rc.force_raycast_update();
+  ok(!rc.is_colliding(), 'a zero-length ray hits nothing');
+  engine.stop();
+}
+
+/* ================================================================== */
+section('Autoloads (project singletons)');
+{
+  const project = {
+    name: 'auto', settings: { width: 320, height: 200 }, main_scene: 'main',
+    assets: { scripts: {}, images: {} },
+    autoloads: {
+      Score: { script: "{ extends: 'Node', points: 0, add(n) { this.points += n; return this.points; }, _ready() { this.ready_hits = (this.ready_hits || 0) + 1; } }" },
+      Config: { type: 'Node', props: {} },
+    },
+    scenes: { main: { root: { type: 'Node2D', name: 'Main' } } },
+  };
+  const engine = new GE.Engine({ headless: true, project });
+  await engine.start();
+  ok(GE.Autoloads.has('Score') && GE.Autoloads.has('Config'), 'autoloads registered');
+  eq(GE.Autoloads.names().join(','), 'Score,Config', 'declaration order kept');
+  eq(GE.Autoloads.Score.add(7), 7, 'autoload methods work');
+  eq(GE.Autoloads.Score.ready_hits, 1, '_ready ran exactly once');
+  eq(GE.api.autoload('Score'), GE.Autoloads.Score, 'Goodness.autoload(name) resolves');
+  ok(engine.tree.root.get_node('Score') === GE.Autoloads.Score, 'autoloads live under /root');
+  eq(GE.Autoloads.get('Nope'), null, 'unknown autoload returns null');
+  engine.stop();
+  eq(GE.Autoloads.names().length, 0, 'stop() clears autoloads');
+}
+
+/* ================================================================== */
+section('Scene connections from project files');
+{
+  const project = {
+    name: 'conn', settings: { width: 320, height: 200 }, main_scene: 'main', assets: { scripts: {}, images: {} },
+    scenes: { main: { root: { type: 'Node2D', name: 'Main', children: [
+      { type: 'Timer', name: 'Ping', props: { wait_time: 0.1, one_shot: true, autostart: true },
+        connections: [{ signal: 'timeout', to: 'Watcher', method: '_on_timeout' }] },
+      { type: 'Node', name: 'Watcher', script: "{ extends: 'Node', hits: 0, _on_timeout() { this.hits++; globalThis.__conn_hits = this.hits; } }" },
+    ] } } },
+  };
+  const engine = new GE.Engine({ headless: true, project });
+  await engine.start();
+  await engine.pump(15);
+  eq(globalThis.__conn_hits, 1, 'scene-file connection fired the target method');
+  engine.stop();
+}
+
+/* ================================================================== */
+section('New API services — art & words (stubbed fetch)');
+{
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    const body = (obj) => ({ ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify(obj), json: async () => obj });
+    if (u.includes('artic.edu/api/v1/artworks/search')) {
+      return body({
+        config: { iiif_url: 'https://www.artic.edu/iiif/2' },
+        data: [
+          { id: 1, title: 'A Sunday on La Grande Jatte', artist_title: 'Georges Seurat', image_id: 'abc-123', is_public_domain: true, date_display: '1884', medium_display: 'Oil on canvas' },
+          { id: 2, title: 'Water Lilies', artist_title: 'Claude Monet', image_id: 'def-456', is_public_domain: true },
+          { id: 3, title: 'No Image Here', artist_title: 'Anon', image_id: null, is_public_domain: true },
+        ],
+      });
+    }
+    if (u.includes('artic.edu/api/v1/artworks/27992')) {
+      return body({ config: { iiif_url: 'https://www.artic.edu/iiif/2' }, data: { id: 27992, title: 'Water Lilies', artist_title: 'Claude Monet', image_id: 'zzz-999', is_public_domain: true } });
+    }
+    if (u.includes('datamuse.com/words')) {
+      return body([
+        { word: 'flame', score: 900, numSyllables: 1 },
+        { word: 'same', score: 800, numSyllables: 1, defs: ['n\tbeing the same'] },
+      ]);
+    }
+    if (u.includes('datamuse.com/sug')) return body([{ word: 'garden' }, { word: 'gargoyle' }]);
+    throw new Error('unexpected fetch ' + u);
+  };
+  const api = GE.API;
+
+  const list = await api.art.search('water lilies', { limit: 5 });
+  eq(list.length, 2, 'art.search drops artworks without images');
+  eq(list[0].artist, 'Georges Seurat', 'artist normalized');
+  eq(list[0].image_url, 'https://www.artic.edu/iiif/2/abc-123/full/843,/0/default.jpg', 'IIIF image URL built from the config');
+  ok(list[0].thumbnail_url.includes('/full/400,/'), 'thumbnail width respected');
+  eq(api.art.image_url('xyz', 200), 'https://www.artic.edu/iiif/2/xyz/full/200,/0/default.jpg', 'image_url custom width');
+  eq(api.art.image_url(null), null, 'image_url handles missing ids');
+  const one = await api.art.get(27992);
+  eq(one.title, 'Water Lilies', 'art.get by id');
+  const deck = api.art.offline_deck(6);
+  eq(deck.length, 6, 'offline deck size');
+  ok(deck[0].image_url.startsWith('goodness://'), 'offline deck uses procedural textures');
+  const tex = await api.art.texture(one, { width: 200 });
+  ok(tex && tex.width > 0, 'art.texture returns a Texture');
+
+  const rhymes = await api.words.rhymes('game', 5);
+  eq(rhymes[0].word, 'flame', 'words.rhymes returns normalised entries');
+  eq(rhymes[1].syllables, 1, 'syllable metadata kept');
+  const described = await api.words.describe('same');
+  eq(described.definition, 'being the same', 'describe() splits definitions from parts of speech');
+  eq(described.part_of_speech, 'n', 'part of speech parsed');
+  const sugs = await api.words.suggest('gar', 2);
+  eq(sugs.join(','), 'garden,gargoyle', 'suggest() returns plain strings');
+  const puz = api.words.offline_puzzle();
+  ok(puz.word && puz.answers.length >= 4, 'offline_puzzle is game-ready');
+  eq(api.count_syllables('extraordinary'), 5, 'syllable estimator');
+  eq(api.count_syllables('cat'), 1, 'short words are one syllable');
+  eq(api.services.length, 5, 'five wrapped services advertised');
+
+  /* the built-in offline banks keep games playable with no network at all */
+  const offline_qs = api.trivia.offline_questions(6);
+  eq(offline_qs.length, 6, 'trivia offline bank returns the requested amount');
+  ok(offline_qs.every((q) => q.answers.length === 4 && q.correct_index >= 0 && q.answers[q.correct_index]), 'every offline question has a valid correct answer');
+  ok(api.art.offline_deck(4).every((a) => a.title && a.image_url), 'art offline deck is complete');
+  ok(api.words.offline_puzzle().answers.length >= 4, 'words offline puzzle is playable');
+
+  globalThis.fetch = realFetch;
+}
+
+/* ================================================================== */
+section('API trainer tasks (editor content)');
+{
+  const fs = require('node:fs');
+  const src = fs.readFileSync(path.join(ROOT, 'editor/api_panel.js'), 'utf8');
+  ok(src.includes('TRAINER_KEY'), 'trainer progress storage present');
+  const task_count = (src.match(/id: 'task-/g) || []).length;
+  eq(task_count, 10, `ten trainer tasks defined (${task_count})`);
+  for (const key of ['API.pokemon', 'API.trivia', 'API.weather', 'API.art', 'API.words']) {
+    ok(src.includes(key), `trainer covers ${key}`);
+  }
+  ok(src.includes('eval_code'), 'trainer reuses the snippet sandbox');
 }
 
 /* ================================================================== */

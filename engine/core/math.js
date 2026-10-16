@@ -51,6 +51,7 @@
       return new Vector2(this.x * c - this.y * s, this.x * s + this.y * c);
     }
     copy() { return new Vector2(this.x, this.y); }
+    clone() { return this.copy(); }
     equals(o) { return this.x === o.x && this.y === o.y; }
 
     /* constants */
@@ -110,6 +111,7 @@
     }
     grow(by) { return new Rect2(this.pos.x - by, this.pos.y - by, this.size.x + by * 2, this.size.y + by * 2); }
     copy() { return new Rect2(this.pos.x, this.pos.y, this.size.x, this.size.y); }
+    clone() { return this.copy(); }
     toString() { return `Rect2(${round2(this.x)}, ${round2(this.y)}, ${round2(this.w)}, ${round2(this.h)})`; }
   }
 
@@ -124,6 +126,9 @@
     lighten(f) { return this.lerp(new Color(1, 1, 1, this.a), f); }
     darken(f) { return this.lerp(new Color(0, 0, 0, this.a), f); }
     with_alpha(a) { return new Color(this.r, this.g, this.b, a); }
+    copy() { return new Color(this.r, this.g, this.b, this.a); }
+    clone() { return this.copy(); }
+    equals(o) { return !!o && this.r === o.r && this.g === o.g && this.b === o.b && this.a === o.a; }
     to_css() {
       const c = (v) => clamp(Math.round(v * 255), 0, 255);
       return `rgba(${c(this.r)}, ${c(this.g)}, ${c(this.b)}, ${round2(this.a)})`;

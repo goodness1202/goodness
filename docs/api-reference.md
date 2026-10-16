@@ -1,6 +1,6 @@
 # Goodness Engine — API Reference
 
-> Generated from the engine source (v0.1.0) by `tools/gen_api_docs.mjs`.
+> Generated from the engine source (v0.2.0) by `tools/gen_api_docs.mjs`.
 > Every node, property, method and signal the editor knows about.
 
 ## Value types
@@ -34,6 +34,11 @@ Constants: `Vector2.ZERO ONE UP DOWN LEFT RIGHT`. Y points **down** (screen spac
 | 📐 **Polygon2D** | Node2D | Visual | Solid polygon from a point list (JSON array of [x, y]). |
 | 🎥 **Camera2D** | Node2D | Visual | Scrolling camera. Make it follow a node (script sets position) or drag it around. |
 | 🪟 **CanvasLayer** | Node | Visual | Screen-space layer for HUDs and menus. Children ignore the camera. |
+| 🌄 **ParallaxLayer** | Node2D | Visual | A single layer of a scrolling background. |
+| 🏔️ **ParallaxBackground** | CanvasLayer | Visual | Draws ParallaxLayer children behind (or in front of) the world. |
+| 🪜 **YSort** | Node2D | Visual | Draws children sorted by their Y position — instant top-down depth. |
+| 🌙 **CanvasModulate** | Node | Visual | Tints the entire world at once — night, sunset, underwater, dream. |
+| 💡 **PointLight2D** | Node2D | Effects | A soft radial light — torches, lamps, explosions, magic, headlights. |
 | 🧩 **TileMap** | Node2D | World | Grid level built from strings of tiles. Draws tiles and collides solids. |
 | 🔤 **Label** | Control | UI | Text on screen. Score, dialogue, titles. |
 | 🔘 **Button** | Control | UI | Clickable button. Emits the "pressed" signal. |
@@ -41,6 +46,10 @@ Constants: `Vector2.ZERO ONE UP DOWN LEFT RIGHT`. Y points **down** (screen spac
 | ▭ **Panel** | Control | UI | Rounded translucent panel — the backbone of good-looking HUDs. |
 | ⏱️ **Timer** | Node | Logic | Calls its "timeout" signal after wait_time seconds. One-shot or looping. |
 | ✨ **Particles2D** | Node2D | Effects | Fire, sparks, dust, explosions, confetti — without any art files. |
+| 🎞️ **AnimationPlayer** | Node | Animation | Plays keyframe animations: position, scale, color, method calls. |
+| 🧭 **NavigationRegion2D** | Node2D | Navigation | A walkable area for pathfinding. Bakes from a polygon or a TileMap. |
+| 🧭 **NavigationAgent2D** | Node2D | Navigation | Finds and follows paths. Put one under any character you want to walk by itself. |
+| 📡 **RayCast2D** | Node2D | Navigation | Casts an invisible line and reports what it hits. |
 | 🔊 **AudioPlayer** | Node | Audio | Plays an audio file. For quick effects, try the SFX synth (no files needed). |
 | 🌐 **HTTPRequest** | Node | Net | Fetch data from the web. Auto-parses JSON. Emits request_completed / request_failed. |
 
@@ -77,6 +86,7 @@ A node with a 2D transform. Base for everything positioned in the world.
 | `rotation` | number | Rotation in degrees. |
 | `scale` | vector2 | Scale (1,1 = normal). |
 | `z_index` | number | Draw order. Higher draws on top. |
+| `y_sort_enabled` | bool | Paint children front-to-back by their Y (top-down games). |
 | `visible` | bool | Hide or show this branch. |
 
 | Method | Description |
@@ -248,6 +258,88 @@ Screen-space layer for HUDs and menus. Children ignore the camera.
 
 ---
 
+### 🌄 ParallaxLayer
+
+A single layer of a scrolling background.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `motion_scale` | vector2 | 0 = glued to the screen, 1 = scrolls with the camera, 0.3 = far away. |
+| `motion_mirroring` | vector2 | Repeat the layer every N pixels (0 = no repeat). |
+| `motion_offset` | vector2 | Extra manual offset. |
+| `position` | vector2 | Position inside the layer. |
+
+---
+
+### 🏔️ ParallaxBackground
+
+Draws ParallaxLayer children behind (or in front of) the world.
+*Extends `CanvasLayer`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `layer` | number | Negative draws behind the world, positive in front. |
+| `scroll_scale` | vector2 | Multiplies every child layer's motion_scale. |
+| `scroll_base_offset` | vector2 | Offset added to the whole background. |
+| `scroll_ignore_camera_zoom` | bool | Keep the background stable when zooming. |
+
+| Method | Description |
+|---|---|
+| `scroll_offset` | Read-only current scroll offset (updated every frame). |
+
+---
+
+### 🪜 YSort
+
+Draws children sorted by their Y position — instant top-down depth.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `position` | vector2 | Position in the world. |
+| `y_sort_enabled` | bool | On by default for YSort. |
+
+---
+
+### 🌙 CanvasModulate
+
+Tints the entire world at once — night, sunset, underwater, dream.
+
+| Property | Type | Description |
+|---|---|---|
+| `color` | color | Multiplied over every world pixel. #ffffff = off. |
+| `visible` | bool | Turn the tint off without deleting the node. |
+
+| Method | Description |
+|---|---|
+| `set_color(color)` | Set the tint (accepts "#0b1030", Color, [r,g,b,a]). |
+| `fade_to(color, duration)` | Tween the tint over time. |
+
+---
+
+### 💡 PointLight2D
+
+A soft radial light — torches, lamps, explosions, magic, headlights.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `color` | color | Light colour. |
+| `energy` | number | Brightness. Animate it for flicker. |
+| `texture_scale` | number | Size multiplier (2 ≈ 260 px across). |
+| `blend_mode` | enum | add = glow on top, mix = replaces the area. |
+| `enabled` | bool | Switch the light off. |
+| `texture` | texture | Optional custom light shape (defaults to a soft circle). |
+
+| Method | Description |
+|---|---|
+| `flicker(amount)` | Randomize energy slightly — instant torch flicker. |
+| `pulse(speed, amount)` | Endless breathing glow. |
+| `radius` | Current world radius in pixels. |
+
+---
+
 ### 🧩 TileMap
 
 Grid level built from strings of tiles. Draws tiles and collides solids.
@@ -380,6 +472,99 @@ Fire, sparks, dust, explosions, confetti — without any art files.
 | Method | Description |
 |---|---|
 | `burst(count)` | Spawn a one-off burst immediately. |
+
+---
+
+### 🎞️ AnimationPlayer
+
+Plays keyframe animations: position, scale, color, method calls.
+
+| Property | Type | Description |
+|---|---|---|
+| `autoplay` | string | Animation played automatically on _ready(). |
+| `speed_scale` | number | Playback speed multiplier. |
+| `animations` | json | Animation dictionary (see docs 11-animation.md). |
+
+| Method | Description |
+|---|---|
+| `play(name, {speed, from_end})` | Start (or restart) an animation. |
+| `stop()` | Stop and reset to time 0. |
+| `pause()/resume()` | Freeze or continue playback. |
+| `queue(name)` | Play another animation right after this one. |
+| `seek(time)` | Jump to a time in seconds and apply it. |
+| `is_playing()` | True while an animation runs. |
+
+---
+
+### 🧭 NavigationRegion2D
+
+A walkable area for pathfinding. Bakes from a polygon or a TileMap.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `polygon` | json | Walkable polygon, e.g. [[0,0],[640,0],[640,360],[0,360]]. |
+| `obstacles` | json | Array of polygons to cut out of the area. |
+| `cell_size` | number | Bake resolution in pixels (smaller = finer). |
+| `tilemap` | string | Node path of a TileMap to bake from (optional). |
+| `auto_tilemap` | bool | Use the first TileMap in the scene when no polygon is set. |
+| `agent_radius` | number | Clearance kept around walls, in pixels. |
+| `auto_bake` | bool | Bake on the first query instead of asking. |
+
+| Method | Description |
+|---|---|
+| `bake()` | Rebuild the navigation grid (call after editing a TileMap). |
+| `is_baked()` | True when the grid is ready. |
+| `is_walkable(point)` | Is this world point navigable? |
+| `find_path(from, to)` | Array of world points from A to B (empty if no route). |
+| `random_point()` | A random walkable world point. |
+
+---
+
+### 🧭 NavigationAgent2D
+
+Finds and follows paths. Put one under any character you want to walk by itself.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `target_position` | vector2 | Where to walk (world coordinates). |
+| `region` | string | Node path of the NavigationRegion2D (auto-detected if empty). |
+| `path_desired_distance` | number | Distance at which a corner counts as reached. |
+| `target_desired_distance` | number | Distance at which the target counts as reached. |
+| `repath_interval` | number | Seconds between automatic re-paths. |
+| `debug_path` | bool | Draw the current path (learning aid). |
+
+| Method | Description |
+|---|---|
+| `set_target(point)` | Ask for a new path to a world point. |
+| `get_next_path_position()` | The next waypoint to walk toward. |
+| `is_navigation_finished()` | True when the target was reached. |
+| `distance_to_target()` | Straight-line distance to the target. |
+| `move_body(body, delta, speed)` | Walk a CharacterBody2D one step along the path. |
+
+---
+
+### 📡 RayCast2D
+
+Casts an invisible line and reports what it hits.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `enabled` | bool | Turn the ray on or off. |
+| `target_position` | vector2 | Ray end, relative to this node. |
+| `collide_with_bodies` | bool | Hit physics bodies (true) or only areas. |
+| `collide_with_areas` | bool | Include Area2D nodes. |
+| `exclude_parent` | bool | Ignore this node's parent (the guard itself). |
+| `debug` | bool | Draw the ray while learning. |
+
+| Method | Description |
+|---|---|
+| `force_raycast_update()` | Re-cast immediately. |
+| `is_colliding()` | Did the ray hit anything this frame? |
+| `get_collider() / get_collision_point() / get_collision_normal()` | What and where it hit. |
+| `get_collision_distance()` | Distance from the ray origin to the hit. |
 
 ---
 

@@ -60,6 +60,14 @@ class definition:
 - **Signals** — one-click connect: pick a target node, name a method,
   the editor wires it
 - **📜 script banner** — attach / open the node's script
+- **✨ Example / ＋ preset buttons** — on animation and other structured
+  properties the Inspector offers one-click presets (bounce, pop, fade in,
+  shake, squash…), so a first animation is two clicks away
+
+The **＋ Add Node** dialog groups all 32 node types by family (Logic, Visual,
+Physics, UI, World, Animation, Navigation, Effects, Audio) — `PointLight2D`
+and `CanvasModulate` sit in Effects and Visual, `AnimationPlayer` in
+Animation, `NavigationAgent2D` in Navigation.
 
 ## Bottom panel
 
@@ -67,8 +75,8 @@ class definition:
 |---|---|
 | **Console** | engine logs, script errors (with the offending node), play-mode output |
 | **Script** | the script editor — templates, live compile check (`✓ compiles cleanly`), attach/detach |
-| **📚 Tutorials** | interactive guided lessons that watch your moves |
-| **🌐 API + Snippets** | searchable reference for every node **and the free APIs**, with **runnable live snippets** |
+| **📚 Tutorials** | seven interactive guided lessons (hello world, platformer, APIs, juice, animation, navigation, world layers) that watch your moves |
+| **🌐 API + Snippets** | searchable reference for every node **and the five free APIs**, with **runnable live snippets** plus the 🎯 **API Trainer** |
 
 ## Keyboard shortcuts
 

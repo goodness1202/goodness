@@ -4,8 +4,9 @@
 
 A free, open-source 2D game engine that runs entirely in your browser — with the
 Godot workflow you know: a tree of nodes, scenes, a visual editor, physics,
-tweens, particles, tilemaps, synthesized sound… **and first-class support for
-free web APIs**, so your games can fetch live data from the internet.
+keyframe animation, pathfinding, parallax, tweens, particles, tilemaps,
+synthesized sound… **and first-class support for five free web APIs**, so your
+games can fetch live data from the internet.
 
 ```js
 // A complete platformer controller — an entire Goodness script
@@ -38,7 +39,7 @@ python3 -m http.server 8080       # or: npx serve .
 |---|---|
 | `http://localhost:8080/editor.html` | **the visual editor** |
 | `http://localhost:8080/index.html` | landing page |
-| `http://localhost:8080/examples/index.html` | six playable example games |
+| `http://localhost:8080/examples/index.html` | nine playable example games |
 | `http://localhost:8080/tests.html` | browser test run |
 
 Then press **📚 Tutorials** in the editor and start *“Hello, Game!”* — the
@@ -46,8 +47,18 @@ interactive lessons watch what you do and auto-advance.
 
 ## What's inside
 
-- **Node & scene system** — 23 node types (Sprite, CharacterBody2D, TileMap,
-  Camera2D, Particles2D, UI, Timer, HTTPRequest…), instancing, groups, signals
+- **Node & scene system** — 32 node types (Sprite, CharacterBody2D, TileMap,
+  Camera2D, Particles2D, AnimationPlayer, NavigationAgent2D, ParallaxLayer,
+  PointLight2D, UI, Timer, HTTPRequest…), instancing, groups, signals
+- **Animation** — `AnimationPlayer` with property / colour / method-call tracks,
+  16 easings, three loop modes and queues; one-line tweens for quick reactions
+- **Navigation** — `NavigationRegion2D` bakes any TileMap (or polygon) into a
+  nav grid, `NavigationAgent2D.move_body()` walks your enemies along it, and
+  `RayCast2D` gives them eyes
+- **World layers** — parallax backgrounds with endless mirroring, y-sorted
+  top-down depth, canvas layers for HUDs
+- **Light & mood** — `CanvasModulate` tints the world (night, sunset,
+  underwater), `PointLight2D` glows additively and can flicker or pulse
 - **Visual editor** — scene dock, inspector, viewport gizmos, play mode,
   script editor with live compile checks, console, undo/redo — all in the browser
 - **Physics** — `CharacterBody2D.move_and_slide()` with coyote time, rigid
@@ -64,14 +75,17 @@ interactive lessons watch what you do and auto-advance.
 
 ## Free APIs, built in & taught
 
-Goodness ships wrappers for three **complete, free, no-key** public APIs, plus
-an in-editor training panel (🌐 **API + Snippets**) with live runnable examples:
+Goodness ships wrappers for five **complete, free, no-key** public APIs, plus
+an in-editor training panel (🌐 **API + Snippets**) with live runnable examples
+and a 🎯 **API Trainer** holding ten graded tasks that check your code:
 
 | API | Wrapper | Your game gets |
 |---|---|---|
 | [PokéAPI](https://pokeapi.co) | `API.pokemon` | 1025 creatures — sprites, stats, type-effectiveness |
 | [Open Trivia DB](https://opentdb.com) | `API.trivia` | 4000+ quiz questions, decoded & shuffled |
 | [Open-Meteo](https://open-meteo.com) | `API.weather` | live weather for any coordinates |
+| [Art Institute of Chicago](https://api.artic.edu/docs) | `API.art` | 120 000+ public-domain artworks *and* the images (IIIF) |
+| [Datamuse](https://www.datamuse.com/api/) | `API.words` | rhymes, synonyms, definitions, syllables, word puzzles |
 
 ```js
 const mon = await API.pokemon.random();
@@ -80,8 +94,17 @@ hp_bar.max_value = mon.stats.hp * 2;
 const mult = await API.pokemon.effectiveness(mon.types, foe.types);
 ```
 
-Guide: **[docs/08-free-apis.md](docs/08-free-apis.md)** · interactive lesson in
-the editor · full examples: *Trivia Quest* and *Creature Clash*.
+```js
+const art = await API.art.random({ query: 'water lilies' });   // a real painting
+await tile.set_texture(await API.art.texture(art));
+
+const round = await API.words.puzzle();                        // a word-game round
+round.word, round.answers;                                     // 'ocean', ['sea', …]
+```
+
+Guide: **[docs/08-free-apis.md](docs/08-free-apis.md)** · interactive lesson plus
+graded trainer tasks in the editor · full examples: *Trivia Quest*,
+*Creature Clash*, *Art Gallery* and *Word Duel*.
 
 ## Example games
 
@@ -93,29 +116,36 @@ the editor · full examples: *Trivia Quest* and *Creature Clash*.
 | ❓ **Trivia Quest** | a quiz game powered by the Open Trivia API (+ offline fallback) |
 | ⚔️ **Creature Clash** | a battler where sprites, HP and damage all come from PokéAPI |
 | ✨ **Particles Playground** | the effects lab |
+| 🖼️ **Art Gallery** | memory game with real museum art: Art Institute API, flip animations, save slots |
+| 🗝️ **Dungeon Delve** | pathfinding slimes, raycast vision, torchlight, an autoload score, parallax depth |
+| 🔤 **Word Duel** | beat the clock with Datamuse synonyms, rhymes and definitions |
 
 Play them at `examples/index.html`, or load any into the editor with
 **File → Load Example…** and read every script.
 
 ## Documentation
 
-A 10-chapter book lives in [`docs/`](docs/01-getting-started.md) (in-site reader: [`docs/index.html`](docs/index.html)) — from
-*Getting Started* to *Architecture*. The full
+A 13-chapter book lives in [`docs/`](docs/01-getting-started.md) (in-site reader: [`docs/index.html`](docs/index.html)) — from
+*Getting Started* to *Architecture*, plus [Animation](docs/11-animation.md),
+[Navigation](docs/12-navigation.md) and [World Layers](docs/13-world-layers.md). The full
 [API reference](docs/api-reference.md) is **generated from the engine source**
 (`tools/gen_api_docs.mjs`), so it can never drift.
 
 ## For developers & contributors
 
 ```bash
-node tests/engine.test.mjs      # 141 unit tests — math, nodes, physics, scripts…
-node tests/examples.test.mjs    # 27 smoke tests — boots & plays every example
-node tests/editor.test.mjs      # 28 jsdom tests — drives the real editor UI
+node tests/engine.test.mjs      # 269 tests — math, nodes, physics, renderer, animation, navigation, lights…
+node tests/examples.test.mjs    # 84 tests — boots & plays every example, headless
+node tests/editor.test.mjs      # 61 jsdom tests — drives the real editor UI
+node tests/trainer.test.mjs     # 17 jsdom tests — grades every API-trainer task
+node tests/site.test.mjs        # 71 jsdom tests — docs reader, player and editor pages
+npm test                        # all five suites (502 checks, all green)
 node examples/build.mjs         # rebuild examples/*/project.json
 node tools/gen_api_docs.mjs     # regenerate docs/api-reference.md
 bash tools/build.sh             # bundle dist/goodness.js (single file)
 ```
 
-The engine is dependency-free classic JavaScript (~5k lines) — every browser
+The engine is dependency-free classic JavaScript — every browser
 API is guarded, which is exactly why the whole thing runs headless in Node
 for testing. Architecture deep-dive: [docs/10-architecture.md](docs/10-architecture.md).
 
@@ -124,8 +154,8 @@ for testing. Architecture deep-dive: [docs/10-architecture.md](docs/10-architect
 ```
 engine/       the engine (core, physics, nodes, input, audio, net)
 editor/       the visual editor (HTML/CSS/JS)
-examples/     six example games (project.mjs → project.json)
-docs/         the tutorial book + generated API reference
+examples/     nine example games (project.mjs → project.json)
+docs/         the tutorial book (13 chapters) + generated API reference
 tools/        build & docs scripts
 tests/        node + jsdom test suites
 dist/         single-file bundle (generated)

@@ -32,6 +32,7 @@
       SFX: GE.SFX,
       Music: GE.Music,
       Save: GE.Save,
+      Autoloads: GE.Autoloads,
       Physics: null, // per-tree; patched at attach time via closure param
       Vector2: GE.Vector2,
       Color: GE.Color,

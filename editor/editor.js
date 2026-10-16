@@ -724,6 +724,41 @@
     return sec;
   }
 
+  /* Ready-made animations the Inspector can drop into any AnimationPlayer.
+     (Track paths are relative to the player's parent — '.' is "my parent".) */
+  const ANIMATION_PRESETS = {
+    bounce: {
+      length: 0.6, loop: 'pingpong',
+      tracks: [
+        { property: 'position.y', keys: [[0, 0, 'quad_in'], [0.3, -40, 'quad_out']] },
+        { property: 'scale', keys: [[0, 1], [0.15, 1.12], [0.3, 1]] },
+      ],
+    },
+    pop: {
+      length: 0.3,
+      tracks: [{ property: 'scale', keys: [[0, [0.4, 0.4], 'back_out'], [0.3, [1, 1]]] }],
+    },
+    fade_in: {
+      length: 0.4,
+      tracks: [{ property: 'modulate', keys: [[0, '#ffffff00'], [0.4, '#ffffffff']] }],
+    },
+    shake: {
+      length: 0.4,
+      tracks: [{ property: 'position.x', keys: [[0, 0], [0.05, -6], [0.1, 6], [0.15, -4], [0.2, 4], [0.4, 0]] }],
+    },
+    squash_on_land: {
+      length: 0.45,
+      tracks: [
+        { property: 'scale', keys: [[0, [1, 1]], [0.08, [1.35, 0.65], 'quad_out'], [0.45, [1, 1], 'elastic_out']] },
+        { method: '_on_landed', at: 0.02 },
+      ],
+    },
+    spin: {
+      length: 0.8,
+      tracks: [{ property: 'rotation', keys: [[0, 0], [0.8, 360]], interp: 'linear' }],
+    },
+  };
+
   function propRow(label, inputWrap, doc) {
     const row = document.createElement('div');
     row.className = 'prop-row';
@@ -869,20 +904,57 @@
       case 'json': {
         const wrap = document.createElement('div');
         wrap.className = 'prop-input';
+        const pretty = val === undefined || val === null ? '' : JSON.stringify(val, null, 2);
         const ta = document.createElement('textarea');
-        ta.value = val === undefined ? '' : JSON.stringify(val, null, 0);
-        ta.rows = 3;
+        ta.value = pretty;
+        ta.rows = Math.min(16, Math.max(3, pretty.split('\n').length));
+        ta.spellcheck = false;
+        ta.style.fontFamily = 'ui-monospace, Consolas, monospace';
+        ta.style.fontSize = '12px';
         ta.onchange = () => {
           try {
             const parsed = ta.value.trim() === '' ? undefined : JSON.parse(ta.value);
             setVal(parsed);
             ta.style.borderColor = '';
+            status('✓ ' + p.path + ' updated');
           } catch (e) {
             ta.style.borderColor = 'var(--red)';
             status('Invalid JSON: ' + e.message);
           }
         };
         wrap.appendChild(ta);
+
+        /* one-click help while learning: a sample, and animation presets */
+        const helpers = document.createElement('div');
+        helpers.className = 'prop-helper-row';
+        const addHelper = (label, title, make) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'prop-helper';
+          b.textContent = label;
+          b.title = title;
+          b.onclick = () => { make(); renderInspector(); status('Inspector updated — press ▶ to see it.'); };
+          helpers.appendChild(b);
+        };
+        if (p.sample !== undefined) {
+          addHelper('✨ Example', 'Insert a working example', () => {
+            const current = getVal();
+            const merged = (current && typeof current === 'object' && !Array.isArray(current) && p.sample && typeof p.sample === 'object')
+              ? { ...JSON.parse(JSON.stringify(p.sample)), ...current } : JSON.parse(JSON.stringify(p.sample));
+            setVal(merged);
+          });
+        }
+        if (p.path === 'animations') {
+          for (const [name, def] of Object.entries(ANIMATION_PRESETS)) {
+            addHelper('＋ ' + name, `Add the "${name}" animation`, () => {
+              const current = getVal();
+              const dict = (current && typeof current === 'object' && !Array.isArray(current)) ? { ...current } : {};
+              dict[name] = JSON.parse(JSON.stringify(def));
+              setVal(dict);
+            });
+          }
+        }
+        if (helpers.children.length) wrap.appendChild(helpers);
         return propRow(p.path, wrap, p.doc);
       }
       case 'tiles': {
@@ -1428,6 +1500,9 @@
       ['trivia-quest', 'Trivia Quest', 'quiz game powered by the free Open Trivia API'],
       ['creature-clash', 'Creature Clash', 'turn-based battler powered by PokéAPI'],
       ['particles-playground', 'Particles Playground', 'effects & tween showcase'],
+      ['art-gallery', 'Art Gallery', 'memory game with real museum art (AIC API)'],
+      ['dungeon-delve', 'Dungeon Delve', 'pathfinding slimes, raycast vision, autoload score'],
+      ['word-duel', 'Word Duel', 'beat the clock with Datamuse rhymes & definitions'],
     ];
     openModal('Load an Example Project', (body, actions) => {
       body.innerHTML = '<p style="color:var(--dim);margin-bottom:10px">Examples are complete, loadable games. Loading one replaces the current project (saved in your browser automatically).</p>';
