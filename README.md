@@ -99,7 +99,7 @@ Play them at `examples/index.html`, or load any into the editor with
 
 ## Documentation
 
-A 10-chapter book lives in [`docs/`](docs/01-getting-started.md) — from
+A 10-chapter book lives in [`docs/`](docs/01-getting-started.md) (in-site reader: [`docs/index.html`](docs/index.html)) — from
 *Getting Started* to *Architecture*. The full
 [API reference](docs/api-reference.md) is **generated from the engine source**
 (`tools/gen_api_docs.mjs`), so it can never drift.

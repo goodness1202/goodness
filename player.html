@@ -111,7 +111,7 @@
     GE.Input._register_canvas(canvas, engine);
 
     /* fps readout */
-    setInterval(() => { fpsEl.textContent = OS.fps + ' fps · ' + engine.tree._count_nodes() + ' nodes'; }, 500);
+    setInterval(() => { fpsEl.textContent = GE.OS.fps + ' fps · ' + engine.tree._count_nodes() + ' nodes'; }, 500);
   })();
   </script>
 </body>

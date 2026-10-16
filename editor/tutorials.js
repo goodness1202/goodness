@@ -224,7 +224,7 @@ await player_sprite.set_texture(mon.sprites.front);</div>
           2. <b>Cache</b> — <code>API.*</code> caches for you (24h for PokéAPI, 10 min for weather).<br>
           3. <b>Never block</b> — use <code>async/await</code>, never freeze the loop.<br>
           4. <b>Any other API?</b> Use <code>API.http.get(url)</code> or the <b>HTTPRequest</b> node.<br><br>
-          That's the whole skill. Check the 🌐 API tab for every endpoint, and <code>docs/07-free-apis.md</code> for the deep dive.`,
+          That's the whole skill. Check the 🌐 API tab for every endpoint, and <code>docs/08-free-apis.md</code> for the deep dive.`,
           check: null,
         },
       ],
@@ -266,7 +266,7 @@ SFX.explosion();</div>
         },
         {
           title: 'Go make something! 🚀',
-          body: `You know the loop now. Ship a tiny game, then a bigger one. The <b>docs/</b> folder has a whole book, and every example game is a readable lesson.`,
+          body: `You know the loop now. Ship a tiny game, then a bigger one. The <b>📖 Documentation</b> page (Help → Documentation) has a whole book, and every example game is a readable lesson.`,
           check: null,
         },
       ],

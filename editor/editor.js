@@ -857,7 +857,8 @@
         const projectImages = Object.keys(App.project.assets.images || {});
         for (const n of names) { const o = document.createElement('option'); o.value = 'goodness://' + n; o.textContent = '● ' + n; sel.appendChild(o); }
         for (const n of projectImages) { const o = document.createElement('option'); o.value = n; o.textContent = '🖼 ' + n; sel.appendChild(o); }
-        if (val && typeof val === 'string' && !sel.querySelector(`option[value="${CSS.escape(val)}"]`)) {
+        const cssEsc = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(val) : String(val).replace(/[^\w-]/g, '\\$&');
+        if (val && typeof val === 'string' && !sel.querySelector(`option[value="${cssEsc}"]`)) {
           const o = document.createElement('option'); o.value = val; o.textContent = '🔗 ' + val.slice(0, 40); sel.appendChild(o);
         }
         sel.value = val || '';
@@ -1493,7 +1494,7 @@
         if (act === 'project-settings') projectSettingsDialog();
         if (act === 'open-tutorials') switchBottomTab('tutorial');
         if (act === 'open-api') switchBottomTab('api');
-        if (act === 'open-docs') window.open('docs/01-getting-started.md', '_blank');
+        if (act === 'open-docs') window.open('docs/index.html', '_blank');
       };
     });
 
@@ -1626,6 +1627,22 @@
   /* ================================================================== */
   /* Boot                                                                */
   /* ================================================================== */
+  /* allow editor.html?import=examples/<name>/project.json (used by the gallery) */
+  async function importFromURL() {
+    const src = new URLSearchParams(location.search).get('import');
+    if (!src) return false;
+    try {
+      const project = await GE.Assets.load_json(src);
+      loadProject(project);
+      GE.TutorialEvents.emit('example_loaded', src);
+      status(`Loaded project from ${src}.`);
+      return true;
+    } catch (e) {
+      status('Could not import from URL: ' + e.message);
+      return false;
+    }
+  }
+
   function boot() {
     wire();
     /* let tutorials read editor state and switch tabs */
@@ -1661,4 +1678,5 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
+  importFromURL();
 })();
