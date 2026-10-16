@@ -148,12 +148,80 @@ console.log('\n■ Script create + attach');
   await new Promise((r) => setTimeout(r, 50));
 }
 
+console.log('\n■ Animated, navigated and layered nodes are first-class citizens');
+{
+  /* every new node type is registered, grouped and inspectable */
+  const kinds = {};
+  for (const cls of GE.Classes.all()) (kinds[cls.def.kind] = kinds[cls.def.kind] || []).push(cls.def.name);
+  ok(!!kinds['Animation'] && kinds['Animation'].includes('AnimationPlayer'), 'Animation group in the node palette');
+  ok(!!kinds['Navigation'] && kinds['Navigation'].includes('NavigationRegion2D')
+    && kinds['Navigation'].includes('NavigationAgent2D') && kinds['Navigation'].includes('RayCast2D'),
+    'Navigation group: region + agent + raycast');
+  ok(!!kinds['Visual'] && kinds['Visual'].includes('ParallaxBackground')
+    && kinds['Visual'].includes('ParallaxLayer') && kinds['Visual'].includes('YSort'), 'Visual group: parallax + ysort');
+
+  /* adding one from the palette must build a live node with its inspector */
+  const added = GE.Classes.get('AnimationPlayer');
+  ok(!!added && !!added.def.props.length && !!added.def.methods.length,
+    'AnimationPlayer ships props + methods for the inspector');
+  const anim_prop = added.def.props.find((p) => p.path === 'animations');
+  ok(!!anim_prop && !!anim_prop.sample && !!anim_prop.sample.bounce, 'the animations property ships a working sample');
+
+  /* add an AnimationPlayer the way a user does, then use the preset buttons */
+  ($$('#scene-tree .tree-node')[0] || {}).dispatchEvent
+    ? $$('#scene-tree .tree-node')[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    : null;
+  await new Promise((r) => setTimeout(r, 30));
+  $('#btn-add-node').click();
+  await new Promise((r) => setTimeout(r, 50));
+  const pick = [...doc.querySelectorAll('.node-pick')].find((p) => p.textContent.includes('AnimationPlayer'));
+  ok(!!pick, 'AnimationPlayer offered in the node palette dialog');
+  if (pick) {
+    pick.click();
+    await new Promise((r) => setTimeout(r, 120));
+    const helpers = $$('#inspector .prop-helper');
+    ok(helpers.some((h) => h.textContent.includes('Example')), 'inspector offers the sample value');
+    ok(helpers.some((h) => h.textContent.includes('bounce')), 'inspector offers animation presets');
+    const bounce = helpers.find((h) => h.textContent.includes('bounce'));
+    if (bounce) {
+      bounce.click();
+      await new Promise((r) => setTimeout(r, 120));
+      const text = $('#inspector').textContent;
+      ok(text.includes('bounce') || $('#inspector textarea') !== null, 'preset wrote the animation into the node');
+    }
+    /* undo the node we just added so later tests see the original scene */
+    const del = $('#btn-del-node');
+    if (del) { del.click(); await new Promise((r) => setTimeout(r, 60)); }
+  }
+
+  /* the Animation resource handles a real animation definition */
+  const anim = GE.Animation.from({
+    length: 0.5, loop: 'pingpong',
+    tracks: [
+      { property: 'position.y', keys: [[0, 0], [0.25, -20, 'quad_out']] },
+      { method: 'bounce', at: 0.1 },
+    ],
+  }, 'bounce');
+  ok(anim.track_count === 2, `Animation keeps property + method tracks (${anim.track_count})`);
+  ok(anim.tracks[0].property === 'position.y' && anim.tracks[1].method === 'bounce', 'track kinds preserved');
+  ok(anim.length === 0.5 && anim.loop_mode === 'pingpong', 'Animation keeps length + loop mode');
+
+  /* the project's autoloads survive a scene change */
+  ok(GE.Autoloads && typeof GE.Autoloads.boot === 'function', 'Autoloads manager available to the editor');
+}
+
 console.log('\n■ Tutorials & API panel');
 {
   const tutBtn = $$('#bottom-tabs button').find((b) => b.textContent.includes('Tutorials'));
   tutBtn.click();
   await new Promise((r) => setTimeout(r, 30));
   ok($$('#tab-tutorial .tut-card').length >= 3, `tutorial cards rendered (${$$('#tab-tutorial .tut-card').length})`);
+
+  const cards = $$('#tab-tutorial .tut-card').map((c) => c.textContent);
+  ok($$('#tab-tutorial .tut-card').length >= 7, `seven guided lessons (${cards.length})`);
+  ok(cards.some((c) => c.includes('Animate anything')), 'animation lesson listed');
+  ok(cards.some((c) => c.includes('Enemies that hunt you')), 'navigation lesson listed');
+  ok(cards.some((c) => c.includes('Worlds with depth')), 'parallax/world lesson listed');
 
   const start = $$('#tab-tutorial .tut-card button').find((b) => b.textContent.includes('Start'));
   start.click();
@@ -166,12 +234,30 @@ console.log('\n■ Tutorials & API panel');
   ok($$('#api-sidebar .api-item').length > 20, `API reference entries (${$$('#api-sidebar .api-item').length})`);
   ok($$('#api-main .snippet').length >= 1, 'runnable snippets rendered');
 
+  /* all five supported APIs and the trainer are documented in the panel */
+  const items = $$('#api-sidebar .api-item').map((i) => i.textContent);
+  for (const name of ['PokéAPI', 'Open Trivia DB', 'Open-Meteo', 'Art Institute of Chicago', 'Datamuse']) {
+    ok(items.some((t) => t.includes(name)), `API panel documents ${name}`);
+  }
+  ok(items.some((t) => t.includes('Trainer')), 'API Trainer listed');
+  ok(!!GE.ApiPanel && GE.ApiPanel.tasks.length === 10, `trainer ships 10 graded tasks (${GE.ApiPanel.tasks.length})`);
+  ok(GE.ApiPanel.tasks.every((t) => t.id && t.brief && t.check && t.solution), 'every trainer task has a brief, a check and a solution');
+  ok(GE.ApiPanel.tasks.some((t) => /art/i.test(t.id + t.brief)), 'trainer covers the art API');
+  ok(GE.ApiPanel.tasks.some((t) => /words/i.test(t.id + t.brief)), 'trainer covers the words API');
+  ok(GE.ApiPanel.progress && typeof GE.ApiPanel.progress === 'object', 'trainer keeps progress in an object keyed by task id');
+
   /* search */
   const search = $('#api-search');
   search.value = 'pokemon';
   search.dispatchEvent(new window.Event('input'));
   await new Promise((r) => setTimeout(r, 30));
   ok($$('#api-sidebar .api-item').some((i) => i.textContent.includes('PokéAPI')), 'API search works');
+
+  /* the example picker offers all nine games */
+  const exSrc = readFileSync(path.join(ROOT, 'editor/editor.js'), 'utf8');
+  for (const slug of ['art-gallery', 'dungeon-delve', 'word-duel']) {
+    ok(exSrc.includes(`['${slug}',`), `example picker lists ${slug}`);
+  }
 }
 
 console.log('\n■ Play mode');

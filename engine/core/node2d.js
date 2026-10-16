@@ -15,6 +15,7 @@
       this._scale = new Vector2(1, 1);
       this.z_index = 0;
       this.visible = true;
+      this.y_sort_enabled = false;   // sort children by world Y (top-down depth)
       this._dirty = true;
       this._world = { x: 0, y: 0, rot: 0, sx: 1, sy: 1 };
     }
@@ -30,6 +31,7 @@
         { path: 'rotation', type: 'number', doc: 'Rotation in degrees.' },
         { path: 'scale', type: 'vector2', doc: 'Scale (1,1 = normal).' },
         { path: 'z_index', type: 'number', doc: 'Draw order. Higher draws on top.' },
+        { path: 'y_sort_enabled', type: 'bool', doc: 'Paint children front-to-back by their Y (top-down games).' },
         { path: 'visible', type: 'bool', doc: 'Hide or show this branch.' },
       ],
       methods: [

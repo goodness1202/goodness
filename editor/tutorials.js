@@ -181,11 +181,13 @@ GGGGGGGGGGGG</div>
       steps: [
         {
           title: 'What is an API, in 20 seconds',
-          body: `An API is a website that returns <b>data instead of pages</b>. Goodness ships with a friendly wrapper for three complete, free, key-less APIs:<br><br>
+          body: `An API is a website that returns <b>data instead of pages</b>. Goodness ships with a friendly wrapper for five complete, free, key-less APIs:<br><br>
           🐾 <b>PokéAPI</b> — creatures, stats, sprites, type charts<br>
           ❓ <b>Open Trivia DB</b> — thousands of quiz questions<br>
-          🌦 <b>Open-Meteo</b> — live weather anywhere on Earth<br><br>
-          In the <b>🌐 API + Snippets</b> tab you can run live examples right now — go ahead, open it, and press <b>Run</b> on the first snippet.`,
+          🌦 <b>Open-Meteo</b> — live weather anywhere on Earth<br>
+          🖼️ <b>Art Institute of Chicago</b> — real paintings <i>and</i> their images<br>
+          📚 <b>Datamuse</b> — rhymes, synonyms and definitions for word games<br><br>
+          In the <b>🌐 API + Snippets</b> tab you can run live examples right now — go ahead, open it, and press <b>Run</b> on the first snippet. When you want homework, the <b>🎯 API Trainer</b> tab hands you ten graded tasks and checks your code.`,
           check: { event: 'api_snippet_ran' },
           openTab: 'api',
         },
@@ -220,11 +222,11 @@ await player_sprite.set_texture(mon.sprites.front);</div>
         },
         {
           title: 'The golden rules',
-          body: `1. <b>Always try/catch</b> — players go offline. Fall back to built-in data.<br>
+          body: `1. <b>Always try/catch</b> — players go offline. Every wrapper ships an offline bank: <code>API.trivia.offline_questions()</code>, <code>API.art.offline_deck()</code>, <code>API.words.offline_puzzle()</code>.<br>
           2. <b>Cache</b> — <code>API.*</code> caches for you (24h for PokéAPI, 10 min for weather).<br>
           3. <b>Never block</b> — use <code>async/await</code>, never freeze the loop.<br>
           4. <b>Any other API?</b> Use <code>API.http.get(url)</code> or the <b>HTTPRequest</b> node.<br><br>
-          That's the whole skill. Check the 🌐 API tab for every endpoint, and <code>docs/08-free-apis.md</code> for the deep dive.`,
+          That's the whole skill. Check the 🌐 API tab for every endpoint, 🎯 <b>API Trainer</b> to prove it, and <code>docs/08-free-apis.md</code> for the deep dive.`,
           check: null,
         },
       ],
@@ -267,6 +269,173 @@ SFX.explosion();</div>
         {
           title: 'Go make something! 🚀',
           body: `You know the loop now. Ship a tiny game, then a bigger one. The <b>📖 Documentation</b> page (Help → Documentation) has a whole book, and every example game is a readable lesson.`,
+          check: null,
+        },
+      ],
+    },
+    {
+      id: 'animation',
+      icon: '🎞️',
+      title: 'Animate anything',
+      time: '10 min',
+      desc: 'AnimationPlayer: keyframes for position, scale, colour and method calls — plus the one-off tween.',
+      steps: [
+        {
+          title: 'Keyframes in 20 seconds',
+          body: `An <code>Animation</code> is a list of <b>tracks</b>; each track is a list of <code>[time, value]</code> keys. An <b>AnimationPlayer</b> node plays them.<br><br>
+          ➜ Select the scene root, then add an <b>AnimationPlayer</b> node (＋ Add Node → Animation).`,
+          check: { event: 'node_added', when: (d) => d && d.type === 'AnimationPlayer' },
+        },
+        {
+          title: 'Give it an animation',
+          body: `Select the AnimationPlayer and paste this into the <b>animations</b> property in the Inspector:<br>
+          <div class="snippet">{
+  bounce: {
+    length: 0.6,
+    loop: 'pingpong',
+    tracks: [
+      { property: 'position.y',  keys: [[0, 0, 'quad_in'], [0.3, -40, 'quad_out']] },
+      { property: 'scale',       keys: [[0, 1], [0.15, 1.15], [0.3, 1]] }
+    ]
+  }
+}</div>
+          <b>Keep in mind:</b> track paths are relative to the player's <i>parent</i> — <code>'.'</code> means "the node I'm attached to". So put the player under the thing you want to animate. Then set <code>autoplay</code> to <code>bounce</code> and press ▶.`,
+          check: { event: 'play_started' },
+        },
+        {
+          title: 'Play it from a script',
+          body: `Signals make animation part of gameplay. Attach this to any node with an <b>AnimationPlayer</b> child:
+          <div class="snippet">{
+  extends: 'Node2D',
+  _ready() {
+    const anim = this.get_node('AnimationPlayer');
+    anim.connect('animation_finished', () => Logger.info('animation done'));
+    anim.play('bounce', { speed: 1.5 });
+  },
+}</div>`,
+          check: { event: 'script_saved' },
+        },
+        {
+          title: 'Method tracks: animation that does things',
+          body: `A track can call a method instead of setting a value — squash on impact, spawn dust, play a sound:
+          <div class="snippet">anim.add_animation('land', {
+  length: 0.4,
+  tracks: [
+    { property: 'scale', keys: [[0, [1, 1]], [0.1, [1.3, 0.7]], [0.4, [1, 1], 'back_out']] },
+    { method: '_spawn_dust', at: 0.08 },
+    { method: '_play_sound',  at: 0.08, args: ['thud'] }
+  ],
+});
+anim.play('land');</div>`,
+          check: { event: 'api_snippet_ran' },
+        },
+        {
+          title: 'When a tween is enough',
+          body: `Not everything deserves an animation asset. For one-off motion, a <b>tween</b> is one line:<br>
+          <div class="snippet">this.create_tween()
+  .tween_property(this, 'position', new Vector2(400, 200), 0.5)
+  .set_ease('back_out');</div>
+          Rule of thumb: <b>AnimationPlayer</b> for a character's own motion, <b>tweens</b> for reactions. Both are in <code>docs/11-animation.md</code>.`,
+          check: null,
+        },
+      ],
+    },
+    {
+      id: 'navigation',
+      icon: '🧭',
+      title: 'Enemies that hunt you',
+      time: '12 min',
+      desc: 'Bake a navigation region, send agents after the player, and give them eyes with RayCast2D.',
+      steps: [
+        {
+          title: 'Drop in a region',
+          body: `Pathfinding needs a map of what is walkable. Add a <b>NavigationRegion2D</b> node to a scene that already has a <b>TileMap</b> — it bakes the tilemap automatically, using '#' tiles as walls.<br><br>➜ Add a NavigationRegion2D node now.`,
+          check: { event: 'node_added', when: (d) => d && d.type === 'NavigationRegion2D' },
+        },
+        {
+          title: 'Bake it and look at it',
+          body: `Press ▶. In the console you will see <code>NavigationRegion2D</code> bake the grid.<br><br>
+          Want to <i>see</i> it? Add a script to the region:
+          <div class="snippet">{
+  extends: 'NavigationRegion2D',
+  _ready() {
+    this.bake();
+    Logger.info('walkable cells: ' + this._grid.cols + 'x' + this._grid.rows);
+    Logger.info('random spot: ' + this.random_point());
+  },
+}</div>`,
+          check: { event: 'play_started' },
+        },
+        {
+          title: 'Give a character an agent',
+          body: `Put a <b>NavigationAgent2D</b> under a <b>CharacterBody2D</b> (an enemy) and let it walk itself around:
+          <div class="snippet">{
+  extends: 'CharacterBody2D',
+  speed: 70,
+  _ready() {
+    this.agent = this.get_node('NavigationAgent2D');
+    this.nav = this.get_tree().get_first_node_in_group('nav');
+    this.agent.set_target(this.nav.random_point());
+  },
+  _physics_process(delta) {
+    if (this.agent.is_navigation_finished()) this.agent.set_target(this.nav.random_point());
+    this.agent.move_body(this, delta, this.speed);
+  },
+}</div>
+          <code>move_body()</code> re-paths on a timer, slides along walls and turns the body to face its walking direction.`,
+          check: { event: 'node_added', when: (d) => d && d.type === 'NavigationAgent2D' },
+        },
+        {
+          title: 'Chase the player',
+          body: `Set the target to the player every frame and the enemy hunts:
+          <div class="snippet">this.agent.set_target(this.player.global_position);
+this.agent.move_body(this, delta, this.speed);</div>
+          Turn on <code>debug_path</code> on the agent to draw the path while you build. The <b>Dungeon Delve</b> example (File → Load Example) is this lesson as a finished game.`,
+          check: { event: 'example_loaded', when: (d) => d === 'dungeon-delve' },
+        },
+        {
+          title: 'Eyes: RayCast2D',
+          body: `A ray is a line that reports what it hits. Add a <b>RayCast2D</b> to the enemy, set <code>target_position</code> to <code>[220, 0]</code> (ahead of it) and <code>debug</code> to true to see it:
+          <div class="snippet">if (this.eye.is_colliding() && this.eye.get_collider() === this.player) {
+  this.agent.set_target(this.player.global_position);
+  this.agent.move_body(this, delta, this.speed);   // spotted!
+}</div>
+          Rays also make lasers, lasers make explosions. Read <code>docs/12-navigation.md</code> for the full tour.`,
+          check: null,
+        },
+      ],
+    },
+    {
+      id: 'world',
+      icon: '🏔️',
+      title: 'Worlds with depth',
+      time: '8 min',
+      desc: 'Parallax backgrounds, y-sorted top-down depth and canvas layers — cheap production value.',
+      steps: [
+        {
+          title: 'A layer that scrolls slower than you',
+          body: `Add a <b>ParallaxBackground</b> node, put a <b>ParallaxLayer</b> inside it, and a Sprite inside that. Then set the layer's <code>motion_scale</code>:<br><br>
+          <code>[0, 0]</code> glued to the screen · <code>[0.3, 0.3]</code> far away · <code>[1, 1]</code> world speed<br><br>
+          ➜ Add a ParallaxBackground node now (＋ Add Node → Visual).`,
+          check: { event: 'node_added', when: (d) => d && d.type === 'ParallaxBackground' },
+        },
+        {
+          title: 'One image, endless horizon',
+          body: `Set <code>motion_mirroring</code> to <code>[640, 0]</code> — the width of one painted strip — and the layer repeats forever, scrolling behind your level. Parallax lives at <code>layer = -1</code>, so it draws <i>behind</i> the world.`,
+          check: { event: 'play_started' },
+        },
+        {
+          title: 'Top-down depth with y-sort',
+          body: `In a top-down game, whatever is lower on screen must draw in front. Tick <b>y_sort_enabled</b> on the parent node (or use a <b>YSort</b> node) and sorting happens by itself:
+          <div class="snippet">Dungeon (YSort)
+ ├─ Chest    (y = 128)
+ ├─ Slime    (y = 160)   ← drawn after the chest
+ └─ Player   (y = 190)   ← drawn on top of both</div>`,
+          check: { event: 'node_added', when: (d) => d && d.type === 'YSort' },
+        },
+        {
+          title: 'That is the whole trick',
+          body: `World → parallax behind it → canvas layers in front of it. Add a Camera2D with position smoothing and you have the look of a commercial 2D game. See <b>Dungeon Delve</b> and <code>docs/13-world-layers.md</code>.`,
           check: null,
         },
       ],

@@ -46,6 +46,8 @@
       this.current_scene_name = name;
       if (node) {
         this.root.add_child(node, true);
+        /* wire the connections saved in the scene file before _ready runs */
+        if (GE.SceneBuilder && GE.SceneBuilder.connect_scene) GE.SceneBuilder.connect_scene(node);
         node._enter_tree_internal();
       }
       this.signals.scene_changed.emit(name);

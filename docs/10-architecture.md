@@ -39,6 +39,7 @@ engine/core/
   textures.js    the procedural art library (30+ drawn textures)
   scripts.js     script compiler (object literal → node behaviour)
   scene.js       SceneBuilder: JSON → live tree (+ Instance nodes)
+  autoloads.js   project-wide singletons (/root/Name, Godot-style)
   tween.js       chained tweens with lazy start-value capture
   save.js        namespaced localStorage persistence
 
@@ -46,9 +47,13 @@ engine/physics/  physics.js (server: broadphase, resolution, raycast,
                  areas, deferred contact signals) · bodies.js
 engine/input/    action-mapped input (keyboard/mouse/gamepad)
 engine/audio/    WebAudio synth (SFX presets + Music sequencer)
-engine/nodes/    sprites · tilemap · ui · timer · effects · audio_node
-engine/net/      HTTPRequest node + API services (PokéAPI, OpenTDB,
-                 Open-Meteo) with caching & timeouts
+engine/nodes/    sprites (+ CanvasLayer, Camera2D) · parallax (ParallaxBackground,
+                 ParallaxLayer, YSort) · tilemap · ui · timer · effects
+                 (Particles2D) · animation_player (AnimationPlayer, Animation) ·
+                 navigation (NavigationRegion2D, NavigationAgent2D, RayCast2D) ·
+                 audio_node
+engine/net/      HTTPRequest node + API services (PokéAPI, OpenTDB, Open-Meteo,
+                 Art Institute of Chicago, Datamuse) with caching & timeouts
 ```
 
 ## The frame

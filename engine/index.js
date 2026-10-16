@@ -5,7 +5,7 @@
 (function (GE) {
   'use strict';
 
-  GE.VERSION = '0.1.0';
+  GE.VERSION = '0.2.0';
   GE.ENGINE_NAME = 'Goodness Engine';
 
   /* Everything a script might reach for, in one namespace. */
@@ -30,6 +30,18 @@
     Camera2D: GE.Camera2D,
     CanvasLayer: GE.CanvasLayer,
     TileMap: GE.TileMap,
+    YSort: GE.YSort,
+    ParallaxLayer: GE.ParallaxLayer,
+    ParallaxBackground: GE.ParallaxBackground,
+
+    /* animation */
+    Animation: GE.Animation,
+    AnimationPlayer: GE.AnimationPlayer,
+
+    /* navigation */
+    NavigationRegion2D: GE.NavigationRegion2D,
+    NavigationAgent2D: GE.NavigationAgent2D,
+    RayCast2D: GE.RayCast2D,
 
     /* physics */
     PhysicsBody2D: GE.PhysicsBody2D,
@@ -62,6 +74,10 @@
     Save: GE.Save,
     Logger: GE.Logger,
     Scripts: GE.Scripts,
+    Autoloads: GE.Autoloads,
+
+    /* project-wide singletons (autoloads) by name, e.g. Goodness.Game */
+    autoload(name) { return GE.Autoloads ? GE.Autoloads.get(name) : null; },
 
     /* value types */
     Vector2: GE.Vector2,

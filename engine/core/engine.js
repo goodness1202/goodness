@@ -59,6 +59,8 @@
 
     async start() {
       const project = this.options.project;
+      /* project-wide singletons come up before the first scene */
+      if (GE.Autoloads) await GE.Autoloads.boot(project, this.tree);
       if (project && project.scenes) {
         const main = project.main_scene || Object.keys(project.scenes)[0];
         if (main && project.scenes[main]) {
@@ -81,6 +83,7 @@
     stop() {
       this.running = false;
       this._destroyed = true;
+      if (GE.Autoloads) GE.Autoloads.clear(this.tree);
       if (this._raf_id !== null && typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(this._raf_id);
         this._raf_id = null;

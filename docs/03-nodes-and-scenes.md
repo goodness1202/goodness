@@ -24,10 +24,12 @@ The node tree gives you composition: a `CharacterBody2D` player with a
 | Family | Nodes | Use them for |
 |---|---|---|
 | **Logic** | `Node`, `Node2D`, `Timer`, `HTTPRequest` | organization, timing, web data |
-| **Visual** | `Sprite`, `AnimatedSprite`, `ColorRect`, `Polygon2D`, `Camera2D`, `CanvasLayer` | everything you see |
+| **Visual** | `Sprite`, `AnimatedSprite`, `ColorRect`, `Polygon2D`, `Camera2D`, `CanvasLayer`, `ParallaxBackground`, `ParallaxLayer`, `YSort` | everything you see — see [13 · World Layers](13-world-layers.md) |
 | **Physics** | `StaticBody2D`, `RigidBody2D`, `CharacterBody2D`, `Area2D` | floors, balls, players, pickups |
 | **UI** | `Label`, `Button`, `ProgressBar`, `Panel` | HUDs and menus |
 | **World** | `TileMap` | grid levels drawn with text |
+| **Animation** | `AnimationPlayer` | keyframed motion — see [11 · Animation](11-animation.md) |
+| **Navigation** | `NavigationRegion2D`, `NavigationAgent2D`, `RayCast2D` | enemies that hunt you — see [12 · Navigation](12-navigation.md) |
 | **Effects** | `Particles2D` | fire, sparks, confetti |
 | **Audio** | `AudioPlayer` | audio files (for synth sounds see `SFX`) |
 

@@ -1,0 +1,654 @@
+{
+  "name": "word-duel",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "background": "#12182b"
+  },
+  "main_scene": "main",
+  "assets": {
+    "scripts": {},
+    "images": {}
+  },
+  "scenes": {
+    "main": {
+      "root": {
+        "type": "Node2D",
+        "name": "Main",
+        "children": [
+          {
+            "type": "Node",
+            "name": "Duel",
+            "script": "\n{\n  extends: 'Node',\n\n  /* round state */\n  round: 0,\n  score: 0,\n  best: 0,\n  streak: 0,\n  best_streak: 0,\n  target: '',\n  correct_word: '',\n  options: [],\n  related: [],        /* every word the API says is related to the target */\n  time_left: 0,\n  time_limit: 10,\n  locked: true,\n  online: true,\n  hint_used: false,\n\n  /* a small pool of unrelated words, used as decoys (checked against the API\n     so a decoy can never be a real synonym) */\n  decoy_pool: [\n    'ladder', 'pepper', 'window', 'guitar', 'harbour', 'lantern', 'cactus', 'marble',\n    'sofa', 'thunder', 'basket', 'pencil', 'orbit', 'velvet', 'anchor', 'compass',\n    'muffin', 'cobweb', 'tunnel', 'glacier', 'hammock', 'puzzle', 'saddle', 'meadow',\n    'cavern', 'quilt', 'zeppelin', 'wrench', 'pebble', 'bramble', 'canyon', 'fjord',\n  ],\n\n  _ready() {\n    this.hud = this.get_node('../HUD');\n    this.word_label = this.hud.get_node('Word');\n    this.meta = this.hud.get_node('Meta');\n    this.message = this.hud.get_node('Message');\n    this.hint_label = this.hud.get_node('Hint');\n    this.bar = this.hud.get_node('TimeBar');\n    this.burst = this.get_node('../Burst');\n    this.buttons = [];\n    for (let i = 0; i < 4; i++) {\n      const b = this.hud.get_node('Option' + i);\n      b._index = i;\n      b.connect('pressed', () => this.answer(b._index));\n      this.buttons.push(b);\n    }\n    this.best = Save.get('word_duel_best', 0);\n    this.next_round();\n  },\n\n  /* ---------------- rounds ---------------- */\n  async next_round() {\n    this.round++;\n    this.locked = true;\n    this.hint_used = false;\n    this.time_limit = Math.max(6, 11 - Math.floor(this.round / 3));\n    this.hint_label.text = 'H = hint (costs 3)   ·   1-4 to answer   ·   R = restart';\n    this.message.text = 'Thinking of a word…';\n    this.word_label.text = '…';\n    for (const b of this.buttons) { b.text = ''; b.visible = false; b.disabled = true; }\n\n    let puzzle = null;\n    try {\n      puzzle = await API.words.puzzle();\n      this.online = true;\n    } catch (err) {\n      puzzle = API.words.offline_puzzle();\n      this.online = false;\n    }\n    if (!puzzle || !puzzle.answers || puzzle.answers.length < 3) {\n      puzzle = API.words.offline_puzzle();\n      this.online = false;\n    }\n\n    this.target = puzzle.word;\n    /* every related word counts as correct — the API grades, not a hardcoded key */\n    this.related = puzzle.answers.map((a) => (typeof a === 'string' ? a : a.word)).filter((w) => w && !w.includes(' '));\n    this.correct_word = choose(this.related.slice(0, 6));\n\n    /* live check: ask the API which words mean the same thing as the target */\n    try {\n      const live = await API.words.like(this.target, 50);\n      for (const w of live) {\n        if (w.word && !w.word.includes(' ') && this.related.indexOf(w.word) === -1) this.related.push(w.word);\n      }\n    } catch (err) { /* offline: the puzzle's own answer list is enough */ }\n\n    /* build the options: the right word plus decoys the API agrees are unrelated */\n    const decoys = [];\n    for (const w of this.decoy_pool) {\n      if (this.related.indexOf(w) !== -1) continue;\n      if (w === this.target) continue;\n      if (decoys.length < 3) decoys.push(w);\n    }\n    while (decoys.length < 3) decoys.push('token' + randi_range(100, 999));\n    this.options = [this.correct_word].concat(decoys);\n    /* shuffle */\n    for (let i = this.options.length - 1; i > 0; i--) {\n      const j = randi_range(0, i);\n      const t = this.options[i]; this.options[i] = this.options[j]; this.options[j] = t;\n    }\n\n    this.word_label.text = '“' + this.target + '”';\n    const shown = Math.min(4, this.options.length);\n    for (let i = 0; i < 4; i++) {\n      const b = this.buttons[i];\n      const has = i < shown;\n      b.visible = has;\n      b.disabled = !has;\n      b.text = has ? this.options[i] : '';\n      b.bg_color = new Color(0.13, 0.17, 0.26);\n      b.anim && b.anim.play('appear', { restart: true });\n    }\n    this.meta.text = (this.online ? 'live from Datamuse 🌐' : 'offline word pack') +\n      '   ·   round ' + this.round + '   ·   score ' + this.score + '   ·   streak ' + this.streak;\n    this.message.text = 'Which word means the same as the big one?';\n    this.message.color = '#9db0d0';\n    this.time_left = this.time_limit;\n    this.bar.value = 100;\n    this.locked = false;\n    SFX.blip();\n  },\n\n  /* ---------------- answering ---------------- */\n  answer(index, automatic = false) {\n    if (this.locked) return;\n    const picked = this.options[index];\n    if (!automatic && !picked) return;\n    this.locked = true;\n\n    const correct = automatic ? false : this.related.indexOf(picked) !== -1;\n    if (correct) {\n      this.streak++;\n      this.best_streak = Math.max(this.best_streak, this.streak);\n      const time_bonus = Math.round(this.time_left * 2);\n      const streak_bonus = Math.min(20, this.streak * 2);\n      this.score += 10 + time_bonus + streak_bonus;\n      this.buttons[index].bg_color = new Color(0.18, 0.6, 0.34);\n      this.buttons[index].anim && this.buttons[index].anim.play('pop', { restart: true });\n      this.burst.position = this.buttons[index].position.add(new Vector2(this.buttons[index].size.x / 2, 24));\n      this.burst.burst(24);\n      SFX.coin();\n      this.message.text = 'Correct!  “' + picked + '” ≈ “' + this.target + '”   (+' +\n        (10 + time_bonus + streak_bonus) + ')' + (this.streak > 1 ? '   ' + this.streak + 'x streak' : '');\n      this.message.color = '#7ef0b0';\n      this._reveal_answer();\n      this._after(0.9);\n    } else {\n      this.streak = 0;\n      if (!automatic) {\n        this.buttons[index].bg_color = new Color(0.66, 0.22, 0.26);\n        this.buttons[index].anim && this.buttons[index].anim.play('shake', { restart: true });\n      }\n      SFX.hurt();\n      this.score = Math.max(0, this.score - 2);\n      this.message.text = automatic\n        ? 'Time up! The answer was “' + this.correct_word + '”.'\n        : 'Not quite — “' + picked + '” is not a synonym of “' + this.target + '”.';\n      this.message.color = '#ff8f8f';\n      this._reveal_answer();\n      this._after(1.3);\n    }\n    this.meta.text = (this.online ? 'live from Datamuse 🌐' : 'offline word pack') +\n      '   ·   round ' + this.round + '   ·   score ' + this.score + '   ·   streak ' + this.streak;\n    if (this.score > this.best) { this.best = this.score; Save.set('word_duel_best', this.best); }\n  },\n\n  _reveal_answer() {\n    for (const b of this.buttons) {\n      if (!b.visible) continue;\n      if (b.text === this.correct_word) b.bg_color = new Color(0.18, 0.6, 0.34);\n      else if (b.text && this.related.indexOf(b.text) !== -1) b.bg_color = new Color(0.2, 0.42, 0.3);\n      b.disabled = true;\n    }\n  },\n\n  _after(seconds) {\n    this._next_in = seconds;\n    this._waiting_next = true;\n  },\n\n  /* ---------------- hints & keys ---------------- */\n  async use_hint() {\n    if (this.locked || this.hint_used) return;\n    this.hint_used = true;\n    this.score = Math.max(0, this.score - 3);\n    /* the API can define the target word for us — free education */\n    let info = null;\n    try { info = await API.words.describe(this.target); } catch (err) { info = null; }\n    if (info && info.definition) {\n      this.message.text = '📖 ' + this.target + ' (' + (info.part_of_speech || 'word') + '): ' + info.definition;\n    } else {\n      this.message.text = '📖 No definition available offline — narrowing the options!';\n    }\n    this.message.color = '#ffd257';\n    /* remove one wrong option */\n    for (let i = this.buttons.length - 1; i >= 0; i--) {\n      const b = this.buttons[i];\n      if (!b.visible || b.text === this.correct_word) continue;\n      if (this.related.indexOf(b.text) !== -1) continue;\n      b.visible = false;\n      b.disabled = true;\n      break;\n    }\n    SFX.powerup();\n  },\n\n  _input(ev) {\n    if (ev.type !== 'key' || !ev.pressed) return false;\n    if (ev.code === 'KeyH') { this.use_hint(); return true; }\n    if (ev.code === 'KeyR') { this.score = 0; this.streak = 0; this.round = 0; this.next_round(); return true; }\n    const n = parseInt(ev.key, 10);\n    if (n >= 1 && n <= 4) {\n      const b = this.buttons[n - 1];\n      if (b && b.visible && !b.disabled) this.answer(n - 1);\n      return true;\n    }\n    return false;\n  },\n\n  /* ---------------- loop ---------------- */\n  _process(delta) {\n    if (this._waiting_next) {\n      this._next_in -= delta;\n      if (this._next_in <= 0) { this._waiting_next = false; this.next_round(); }\n      return;\n    }\n    if (this.locked) return;\n    this.time_left -= delta;\n    this.bar.value = Math.max(0, this.time_left / this.time_limit * 100);\n    if (this.time_left <= 0) this.answer(-1, true);\n  },\n}",
+            "children": []
+          },
+          {
+            "type": "Particles2D",
+            "name": "Burst",
+            "props": {
+              "emitting": false,
+              "amount": 0,
+              "lifetime": 0.7,
+              "spread": 360,
+              "direction": 0,
+              "speed_min": 90,
+              "speed_max": 300,
+              "gravity": [
+                0,
+                420
+              ],
+              "colors": [
+                "#ffd257",
+                "#7ef0b0",
+                "#9cc4ff"
+              ],
+              "scale_min": 0.3,
+              "scale_max": 0.9
+            }
+          },
+          {
+            "type": "CanvasLayer",
+            "name": "HUD",
+            "children": [
+              {
+                "type": "Label",
+                "name": "Title",
+                "props": {
+                  "position": [
+                    340,
+                    34
+                  ],
+                  "text": "📚  Word Duel",
+                  "font_size": 34,
+                  "size": [
+                    600,
+                    44
+                  ],
+                  "align": "center",
+                  "color": "#eaf1ff",
+                  "outline": 3
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Meta",
+                "props": {
+                  "position": [
+                    340,
+                    92
+                  ],
+                  "text": "loading…",
+                  "font_size": 17,
+                  "size": [
+                    600,
+                    24
+                  ],
+                  "align": "center",
+                  "color": "#9db0d0"
+                }
+              },
+              {
+                "type": "Panel",
+                "name": "CardPanel",
+                "props": {
+                  "position": [
+                    340,
+                    130
+                  ],
+                  "size": [
+                    600,
+                    150
+                  ],
+                  "color": "#161c2e"
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Word",
+                "props": {
+                  "position": [
+                    340,
+                    168
+                  ],
+                  "text": "…",
+                  "font_size": 62,
+                  "size": [
+                    600,
+                    80
+                  ],
+                  "align": "center",
+                  "color": "#ffd257",
+                  "outline": 4
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Option0",
+                "props": {
+                  "position": [
+                    340,
+                    310
+                  ],
+                  "size": [
+                    290,
+                    74
+                  ],
+                  "font_size": 26,
+                  "text": "…"
+                },
+                "children": [
+                  {
+                    "type": "AnimationPlayer",
+                    "name": "Anim",
+                    "props": {
+                      "animations": {
+                        "appear": {
+                          "length": 0.3,
+                          "tracks": [
+                            {
+                              "property": "scale",
+                              "keys": [
+                                [
+                                  0,
+                                  [
+                                    0.9,
+                                    0.9
+                                  ]
+                                ],
+                                [
+                                  0.3,
+                                  [
+                                    1,
+                                    1
+                                  ],
+                                  "back_out"
+                                ]
+                              ]
+                            }
+                          ]
+                        },
+                        "pop": {
+                          "length": 0.35,
+                          "tracks": [
+                            {
+                              "property": "scale",
+                              "keys": [
+                                [
+                                  0,
+                                  [
+                                    1,
+                                    1
+                                  ]
+                                ],
+                                [
+                                  0.15,
+                                  [
+                                    1.08,
+                                    1.08
+                                  ],
+                                  "back_out"
+                                ],
+                                [
+                                  0.35,
+                                  [
+                                    1,
+                                    1
+                                  ]
+                                ]
+                              ]
+                            }
+                          ]
+                        },
+                        "shake": {
+                          "length": 0.34,
+                          "tracks": [
+                            {
+                              "property": "rotation",
+                              "keys": [
+                                [
+                                  0,
+                                  0
+                                ],
+                                [
+                                  0.08,
+                                  -3
+                                ],
+                                [
+                                  0.16,
+                                  3
+                                ],
+                                [
+                                  0.24,
+                                  -2
+                                ],
+                                [
+                                  0.34,
+                                  0
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Button",
+                "name": "Option1",
+                "props": {
+                  "position": [
+                    650,
+                    310
+                  ],
+                  "size": [
+                    290,
+                    74
+                  ],
+                  "font_size": 26,
+                  "text": "…"
+                },
+                "children": [
+                  {
+                    "type": "AnimationPlayer",
+                    "name": "Anim",
+                    "props": {
+                      "animations": {
+                        "appear": {
+                          "length": 0.3,
+                          "tracks": [
+                            {
+                              "property": "scale",
+                              "keys": [
+                                [
+                                  0,
+                                  [
+                                    0.9,
+                                    0.9
+                                  ]
+                                ],
+                                [
+                                  0.3,
+                                  [
+                                    1,
+                                    1
+                                  ],
+                                  "back_out"
+                                ]
+                              ]
+                            }
+                          ]
+                        },
+                        "pop": {
+                          "length": 0.35,
+                          "tracks": [
+                            {
+                              "property": "scale",
+                              "keys": [
+                                [
+                                  0,
+                                  [
+                                    1,
+                                    1
+                                  ]
+                                ],
+                                [
+                                  0.15,
+                                  [
+                                    1.08,
+                                    1.08
+                                  ],
+                                  "back_out"
+                                ],
+                                [
+                                  0.35,
+                                  [
+                                    1,
+                                    1
+                                  ]
+                                ]
+                              ]
+                            }
+                          ]
+                        },
+                        "shake": {
+                          "length": 0.34,
+                          "tracks": [
+                            {
+                              "property": "rotation",
+                              "keys": [
+                                [
+                                  0,
+                                  0
+                                ],
+                                [
+                                  0.08,
+                                  -3
+                                ],
+                                [
+                                  0.16,
+                                  3
+                                ],
+                                [
+                                  0.24,
+                                  -2
+                                ],
+                                [
+                                  0.34,
+                                  0
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Button",
+                "name": "Option2",
+                "props": {
+                  "position": [
+                    340,
+                    398
+                  ],
+                  "size": [
+                    290,
+                    74
+                  ],
+                  "font_size": 26,
+                  "text": "…"
+                },
+                "children": [
+                  {
+                    "type": "AnimationPlayer",
+                    "name": "Anim",
+                    "props": {
+                      "animations": {
+                        "appear": {
+                          "length": 0.3,
+                          "tracks": [
+                            {
+                              "property": "scale",
+                              "keys": [
+                                [
+                                  0,
+                                  [
+                                    0.9,
+                                    0.9
+                                  ]
+                                ],
+                                [
+                                  0.3,
+                                  [
+                                    1,
+                                    1
+                                  ],
+                                  "back_out"
+                                ]
+                              ]
+                            }
+                          ]
+                        },
+                        "pop": {
+                          "length": 0.35,
+                          "tracks": [
+                            {
+                              "property": "scale",
+                              "keys": [
+                                [
+                                  0,
+                                  [
+                                    1,
+                                    1
+                                  ]
+                                ],
+                                [
+                                  0.15,
+                                  [
+                                    1.08,
+                                    1.08
+                                  ],
+                                  "back_out"
+                                ],
+                                [
+                                  0.35,
+                                  [
+                                    1,
+                                    1
+                                  ]
+                                ]
+                              ]
+                            }
+                          ]
+                        },
+                        "shake": {
+                          "length": 0.34,
+                          "tracks": [
+                            {
+                              "property": "rotation",
+                              "keys": [
+                                [
+                                  0,
+                                  0
+                                ],
+                                [
+                                  0.08,
+                                  -3
+                                ],
+                                [
+                                  0.16,
+                                  3
+                                ],
+                                [
+                                  0.24,
+                                  -2
+                                ],
+                                [
+                                  0.34,
+                                  0
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Button",
+                "name": "Option3",
+                "props": {
+                  "position": [
+                    650,
+                    398
+                  ],
+                  "size": [
+                    290,
+                    74
+                  ],
+                  "font_size": 26,
+                  "text": "…"
+                },
+                "children": [
+                  {
+                    "type": "AnimationPlayer",
+                    "name": "Anim",
+                    "props": {
+                      "animations": {
+                        "appear": {
+                          "length": 0.3,
+                          "tracks": [
+                            {
+                              "property": "scale",
+                              "keys": [
+                                [
+                                  0,
+                                  [
+                                    0.9,
+                                    0.9
+                                  ]
+                                ],
+                                [
+                                  0.3,
+                                  [
+                                    1,
+                                    1
+                                  ],
+                                  "back_out"
+                                ]
+                              ]
+                            }
+                          ]
+                        },
+                        "pop": {
+                          "length": 0.35,
+                          "tracks": [
+                            {
+                              "property": "scale",
+                              "keys": [
+                                [
+                                  0,
+                                  [
+                                    1,
+                                    1
+                                  ]
+                                ],
+                                [
+                                  0.15,
+                                  [
+                                    1.08,
+                                    1.08
+                                  ],
+                                  "back_out"
+                                ],
+                                [
+                                  0.35,
+                                  [
+                                    1,
+                                    1
+                                  ]
+                                ]
+                              ]
+                            }
+                          ]
+                        },
+                        "shake": {
+                          "length": 0.34,
+                          "tracks": [
+                            {
+                              "property": "rotation",
+                              "keys": [
+                                [
+                                  0,
+                                  0
+                                ],
+                                [
+                                  0.08,
+                                  -3
+                                ],
+                                [
+                                  0.16,
+                                  3
+                                ],
+                                [
+                                  0.24,
+                                  -2
+                                ],
+                                [
+                                  0.34,
+                                  0
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "ProgressBar",
+                "name": "TimeBar",
+                "props": {
+                  "position": [
+                    340,
+                    500
+                  ],
+                  "size": [
+                    600,
+                    14
+                  ],
+                  "value": 100,
+                  "fill_color": "#7ef0b0",
+                  "show_text": false
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Message",
+                "props": {
+                  "position": [
+                    240,
+                    536
+                  ],
+                  "text": "",
+                  "font_size": 21,
+                  "size": [
+                    800,
+                    60
+                  ],
+                  "align": "center",
+                  "color": "#9db0d0",
+                  "autowrap": true
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Hint",
+                "props": {
+                  "position": [
+                    240,
+                    610
+                  ],
+                  "text": "",
+                  "font_size": 16,
+                  "size": [
+                    800,
+                    24
+                  ],
+                  "align": "center",
+                  "color": "#5f6f8f"
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Credit",
+                "props": {
+                  "position": [
+                    240,
+                    668
+                  ],
+                  "text": "words & meanings: Datamuse (datamuse.com) — a free, keyless API · best score is saved",
+                  "font_size": 14,
+                  "size": [
+                    800,
+                    20
+                  ],
+                  "align": "center",
+                  "color": "#4d5b78"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

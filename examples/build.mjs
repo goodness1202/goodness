@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXAMPLES = ['hello', 'coin-rush', 'nova-strike', 'trivia-quest', 'creature-clash', 'particles-playground'];
+const EXAMPLES = ['hello', 'coin-rush', 'nova-strike', 'trivia-quest', 'creature-clash', 'particles-playground', 'art-gallery', 'dungeon-delve', 'word-duel'];
 
 for (const name of EXAMPLES) {
   const mod = await import(`./${name}/project.mjs`);

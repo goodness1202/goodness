@@ -1,0 +1,401 @@
+{
+  "name": "dungeon-delve",
+  "settings": {
+    "width": 1280,
+    "height": 704,
+    "background": "#0b0f1a"
+  },
+  "main_scene": "main",
+  "autoloads": {
+    "Run": {
+      "script": "{\n  extends: 'Node',\n  score: 0,\n  gems: 0,\n  deaths: 0,\n  best: 0,\n  last_time: 0,\n\n  reset() { this.score = 0; this.gems = 0; this.last_time = 0; },\n\n  add_gem(value) {\n    this.gems++;\n    this.score += value;\n    SFX.coin();\n    return this.score;\n  },\n\n  die() {\n    this.deaths++;\n    this.score = Math.max(0, this.score - 25);\n  },\n\n  escaped(seconds, gems_left) {\n    this.last_time = seconds;\n    this.score += 250 + gems_left * 25;\n    if (this.score > this.best) { this.best = this.score; Save.set('delve_best', this.best); }\n    return this.score;\n  },\n}"
+    }
+  },
+  "assets": {
+    "scripts": {},
+    "images": {}
+  },
+  "scenes": {
+    "main": {
+      "root": {
+        "type": "Node2D",
+        "name": "Main",
+        "children": [
+          {
+            "type": "Polygon2D",
+            "name": "Floor",
+            "props": {
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  1280,
+                  0
+                ],
+                [
+                  1280,
+                  704
+                ],
+                [
+                  0,
+                  704
+                ]
+              ],
+              "color": "#161c2e",
+              "z_index": -5
+            }
+          },
+          {
+            "type": "TileMap",
+            "name": "Level",
+            "props": {
+              "cell_size": 32,
+              "solid_tiles": "#",
+              "tiles": [
+                "########################################",
+                "#..........#...............#...........#",
+                "#..........#..E............#...........#",
+                "#..g.............g.........#...........#",
+                "#......E...#............g..#...........#",
+                "#..........#.......................g...#",
+                "#..........#...............#...........#",
+                "######.############.#############.######",
+                "#..........#...............#...........#",
+                "#..........#.........E.....#...........#",
+                "#..........#...............#...........#",
+                "#....P..............g......#...........#",
+                "#..........#............E........E.....#",
+                "#.......g..#...............#...........#",
+                "#..........#...............#...........#",
+                "####.############.################.#####",
+                "#..........#...............#...........#",
+                "#..........#....E..........#...g.......#",
+                "#..........#...........................#",
+                "#.....E....................#.......g.X.#",
+                "#..........#...............#...........#",
+                "########################################"
+              ]
+            }
+          },
+          {
+            "type": "NavigationRegion2D",
+            "name": "Nav",
+            "props": {
+              "agent_radius": 9,
+              "auto_tilemap": true
+            }
+          },
+          {
+            "type": "Node2D",
+            "name": "Gems",
+            "script": "\n{\n  extends: 'Node2D',\n  pickups: [],\n\n  _ready() {\n    this.level = this.get_node('../Level');\n    this.player = this.get_node('../Player');\n    const cells = this.level.get_cells_by_type('g');\n    for (const cell of cells) {\n      this.level.set_cell(cell.x, cell.y, '.');\n      this._spawn(this.level.map_to_world(cell.x, cell.y));\n    }\n  },\n\n  _spawn(world_pos) {\n    const holder = new Goodness.Node2D();\n    holder.name = 'Gem' + (this.pickups.length + 1);\n    holder.position = world_pos;\n    holder.taken = false;\n    holder.modulate = new Goodness.Color(1, 1, 1, 1);\n\n    const sprite = new Goodness.Sprite();\n    sprite.name = 'Sprite';\n    sprite.texture_src = 'goodness://gem';\n    sprite.scale = new Vector2(0.5, 0.5);\n    holder.add_child(sprite);\n\n    /* each gem floats and spins with its own tiny AnimationPlayer */\n    const anim = new Goodness.AnimationPlayer();\n    anim.name = 'Anim';\n    holder.add_child(anim);\n    const base_y = holder.position.y;\n    anim.animations = {\n      float: { length: 1.6, loop: true, tracks: [\n        { property: 'position.y', keys: [[0, base_y], [0.8, base_y - 9, 'sine_in_out'], [1.6, base_y]] },\n      ] },\n      spin: { length: 2, loop: true, tracks: [\n        { node: 'Sprite', property: 'rotation', keys: [[0, 0], [2, 360]] },\n      ] },\n      collect: { length: 0.3, tracks: [\n        { property: 'scale', keys: [[0, [1, 1]], [0.3, [1.7, 1.7], 'sine_out']] },\n        { property: 'modulate', keys: [[0, '#ffffff'], [0.3, '#ffffff00']] },\n      ] },\n    };\n    anim.play('float');\n    anim.play('spin', { restart: true });\n\n    this.add_child(holder);\n    this.pickups.push(holder);\n  },\n\n  _process(delta) {\n    if (!this.player || this.player.dead) return;\n    for (const gem of this.pickups) {\n      if (gem.taken || gem._freed) continue;\n      const d = gem.global_position.distance_to(this.player.global_position);\n      if (d < 26) {\n        gem.taken = true;\n        gem.get_node('Anim').play('collect');\n        this.player.collect_gem(gem.global_position);\n        const t = gem.create_tween();\n        if (t) t.interval(0.3).then(() => gem.queue_free());\n      }\n    }\n    this.pickups = this.pickups.filter((g) => !g._freed);\n  },\n}"
+          },
+          {
+            "type": "Node2D",
+            "name": "Enemies",
+            "script": "\n{\n  extends: 'Node2D',\n  slimes: [],\n\n  /* Every slime is a CharacterBody2D built at runtime *and given a script*\n     with Goodness.Scripts — the same script system the editor uses. */\n  slime_script: `{\n    extends: 'CharacterBody2D',\n    speed: 62,\n    sense_range: 300,\n    damage: 1,\n    cooldown: 0,\n\n    _ready() {\n      this.agent = this.get_node('Agent');\n      this.anim = this.get_node('Anim');\n      this.sprite = this.get_node('Sprite');\n      this.eye = this.get_node('Eye');\n      this.player = this.get_node('../../Player');\n      this.home = this.position.copy();\n      this.anim.play('bob');\n    },\n\n    _physics_process(delta) {\n      if (!this.player || this.player.dead) { this.velocity = new Vector2(); this.move_and_slide(); return; }\n      const to_player = this.player.global_position.sub(this.global_position);\n      const dist = to_player.length;\n      this.eye.target_position = to_player;\n      const sees = dist < this.sense_range && !this.eye.is_colliding();\n\n      if (sees) {\n        this.agent.set_target(this.player.global_position);\n        this.sprite.flip_h = to_player.x < 0;\n      } else if (this.agent.is_navigation_finished(this.global_position)) {\n        this.agent.set_target(this.home);\n      }\n\n      const dir = this.agent.move_body(this, delta, this.speed);\n      this.anim.speed_scale = dir.length > 0.01 ? 1.7 : 0.8;\n\n      if (this.cooldown > 0) this.cooldown -= delta;\n      if (dist < 30 && this.cooldown <= 0) {\n        this.cooldown = 1.2;\n        this.player.take_hit(this.global_position);\n      }\n    },\n  }`,\n\n  _ready() {\n    this.level = this.get_node('../Level');\n    this.nav = this.get_node('../Nav');\n    const cells = this.level.get_cells_by_type('E');\n    for (const cell of cells) {\n      this.level.set_cell(cell.x, cell.y, '.');\n      this._spawn(this.level.map_to_world(cell.x, cell.y));\n    }\n  },\n\n  _spawn(world_pos) {\n    const slime = new Goodness.CharacterBody2D();\n    slime.name = 'Slime' + (this.slimes.length + 1);\n    slime.position = world_pos;\n    slime.shape = { type: 'circle', radius: 13 };\n\n    const sprite = new Goodness.Sprite();\n    sprite.name = 'Sprite';\n    sprite.texture_src = 'goodness://slime';\n    sprite.scale = new Vector2(0.5, 0.5);\n    slime.add_child(sprite);\n\n    const anim = new Goodness.AnimationPlayer();\n    anim.name = 'Anim';\n    slime.add_child(anim);\n    anim.animations = {\n      bob: { length: 1, loop: true, tracks: [\n        { property: 'scale', keys: [[0, [1, 1]], [0.5, [1.12, 0.88], 'sine_in_out'], [1, [1, 1]]] },\n      ] },\n    };\n\n    const agent = new Goodness.NavigationAgent2D();\n    agent.name = 'Agent';\n    agent.path_desired_distance = 12;\n    agent.target_desired_distance = 14;\n    slime.add_child(agent);\n\n    const eye = new Goodness.RayCast2D();\n    eye.name = 'Eye';\n    eye.exclude_parent = true;\n    slime.add_child(eye);\n\n    Goodness.Scripts.attach_source(slime, this.slime_script);\n    this.add_child(slime);\n    this.slimes.push(slime);\n    return slime;\n  },\n\n  _process(delta) {\n    this.slimes = this.slimes.filter((s) => !s._freed);\n  },\n\n  count() { return this.slimes.length; },\n}"
+          },
+          {
+            "type": "CharacterBody2D",
+            "name": "Player",
+            "props": {
+              "position": [
+                176,
+                368
+              ],
+              "shape": {
+                "type": "rect",
+                "width": 22,
+                "height": 26
+              }
+            },
+            "script": "\n{\n  extends: 'CharacterBody2D',\n  speed: 210,\n  dash_speed: 520,\n  hp: 5,\n  max_hp: 5,\n  invuln: 0,\n  dead: false,\n  elapsed: 0,\n  dash: 0,\n  dash_cd: 0,\n\n  _ready() {\n    this.sprite = this.get_node('Sprite');\n    this.cam = this.get_node('Camera');\n    this.eye = this.get_node('Eye');\n    this.anim = this.get_node('Anim');\n    this.dust = this.get_node('Dust');\n    this.sparkle = this.get_node('Sparkle');\n    this.level = this.get_node('../Level');\n    this.gems_node = this.get_node('../Gems');\n    this.nav = this.get_node('../Nav');\n    this.hud = this.get_node('../HUD');\n    this.hp_label = this.hud.get_node('HP');\n    this.score_label = this.hud.get_node('Score');\n    this.message = this.hud.get_node('Message');\n    this.msg_timer = 5;\n    Autoloads.Run.reset();\n    this.message.text = 'Find the door ★ — ' + this.gems_node.pickups.length + ' gems are hidden in the dark.';\n    this._update_hud();\n  },\n\n  _physics_process(delta) {\n    if (this.dead) return;\n    this.elapsed += delta;\n\n    /* --- movement --- */\n    const dir = Input.get_vector('ui_left', 'ui_right', 'ui_up', 'ui_down');\n    if (dir.length > 0.01) this.sprite.flip_h = dir.x < 0;\n    this.dust.emitting = dir.length > 0.01;\n\n    if (this.dash_cd > 0) this.dash_cd -= delta;\n    if (Input.is_action_just_pressed('fire') && this.dash_cd <= 0 && dir.length > 0.01) {\n      this.dash = 0.16;\n      this.dash_cd = 0.9;\n      SFX.laser();\n    }\n    if (this.dash > 0) {\n      this.dash -= delta;\n      this.velocity = dir.normalized.mul(this.dash_speed);\n    } else {\n      this.velocity = dir.mul(this.speed);\n    }\n    this.move_and_slide();\n    this.rotation = 0;\n\n    /* --- line of sight to the nearest slime (RayCast2D showcase) --- */\n    const enemies = this.get_node('../Enemies');\n    let nearest = null, best = 1e9;\n    for (const s of enemies.slimes) {\n      const d = s.global_position.distance_to(this.global_position);\n      if (d < best) { best = d; nearest = s; }\n    }\n    if (nearest) this.eye.target_position = nearest.global_position.sub(this.global_position);\n\n    /* --- invulnerability flicker --- */\n    if (this.invuln > 0) {\n      this.invuln -= delta;\n      this.modulate = new Color(1, 1, 1, 0.55 + Math.sin(this.elapsed * 22) * 0.35);\n    } else {\n      this.modulate = new Color(1, 1, 1, 1);\n    }\n    if (this.msg_timer > 0) {\n      this.msg_timer -= delta;\n      if (this.msg_timer <= 0) this.message.text = '';\n    }\n\n    /* --- reached the exit? --- */\n    const cell = this.level.world_to_map(this.global_position);\n    if (this.level.get_cell(cell.x, cell.y) === 'X') this._escape();\n\n    this._update_hud();\n  },\n\n  _input(ev) {\n    if (ev.type === 'key' && ev.pressed && ev.code === 'KeyN') {\n      this.nav.debug_draw = !this.nav.debug_draw;\n      this._say(this.nav.debug_draw ? 'Navigation grid ON (green = walkable)' : 'Navigation grid off');\n      return true;\n    }\n    return false;\n  },\n\n  _say(text) {\n    this.message.text = text;\n    this.msg_timer = 4;\n  },\n\n  collect_gem(pos) {\n    Autoloads.Run.add_gem(10);\n    this.sparkle.global_position = this.global_position;\n    this.sparkle.burst(14);\n    const left = this.gems_node.pickups.filter((g) => !g.taken).length;\n    if (left === 0) this._say('Every gem collected! The door is worth more now ★');\n    this._update_hud();\n  },\n\n  take_hit(from_pos) {\n    if (this.invuln > 0 || this.dead) return;\n    this.hp -= 1;\n    this.invuln = 1.1;\n    this.anim.play('hurt', { restart: true });\n    this.cam.shake(0.3, 11);\n    SFX.hurt();\n    const away = this.global_position.sub(from_pos);\n    if (away.length > 0.01) {\n      const push = away.normalized.mul(240);\n      this.tree.physics.move_character(this, push, 1 / 60, {});\n    }\n    if (this.hp <= 0) this._die();\n    this._update_hud();\n  },\n\n  _die() {\n    this.dead = true;\n    Autoloads.Run.die();\n    SFX.explosion();\n    this.cam.shake(0.6, 18);\n    this.sparkle.burst(40);\n    Save.set('delve_runs', Save.get('delve_runs', 0) + 1);\n    this._say('You fell in the dark… the dungeon rewinds (score ' + Autoloads.Run.score + ')');\n    this.hp_label.text = '💀 defeated';\n    /* the Timer in the scene file restarts us — no code needed */\n    this.get_node('../Restart').start();\n  },\n\n  _escape() {\n    if (this._escaped) return;\n    this._escaped = true;\n    SFX.win();\n    const left = this.gems_node.pickups.filter((g) => !g.taken).length;\n    const score = Autoloads.Run.escaped(this.elapsed, left);\n    this.sparkle.burst(60);\n    this._say('You escaped in ' + this.elapsed.toFixed(1) + 's with ' + Autoloads.Run.gems +\n      '/8 gems — score ' + score + ' (best ' + Autoloads.Run.best + ')');\n    this.get_node('../Restart').start();\n  },\n\n  _update_hud() {\n    this.hp_label.text = '❤'.repeat(Math.max(0, this.hp)) + '·'.repeat(Math.max(0, this.max_hp - this.hp));\n    const left = this.gems_node ? this.gems_node.pickups.filter((g) => !g.taken).length : 8;\n    this.score_label.text = 'Score ' + Autoloads.Run.score + ' · gems ' + (8 - left) + '/8 · deaths ' +\n      Autoloads.Run.deaths + ' · ' + this.elapsed.toFixed(1) + 's';\n  },\n}",
+            "children": [
+              {
+                "type": "AnimationPlayer",
+                "name": "Anim",
+                "props": {
+                  "autoplay": "idle",
+                  "animations": {
+                    "idle": {
+                      "length": 1.2,
+                      "loop": true,
+                      "tracks": [
+                        {
+                          "property": "scale",
+                          "keys": [
+                            [
+                              0,
+                              [
+                                1,
+                                1
+                              ]
+                            ],
+                            [
+                              0.6,
+                              [
+                                1.04,
+                                0.97
+                              ],
+                              "sine_in_out"
+                            ],
+                            [
+                              1.2,
+                              [
+                                1,
+                                1
+                              ]
+                            ]
+                          ]
+                        }
+                      ]
+                    },
+                    "hurt": {
+                      "length": 0.4,
+                      "tracks": [
+                        {
+                          "property": "modulate",
+                          "keys": [
+                            [
+                              0,
+                              "#ffffff"
+                            ],
+                            [
+                              0.1,
+                              "#ff5a5f"
+                            ],
+                            [
+                              0.4,
+                              "#ffffff"
+                            ]
+                          ]
+                        },
+                        {
+                          "property": "rotation",
+                          "keys": [
+                            [
+                              0,
+                              0
+                            ],
+                            [
+                              0.1,
+                              -12
+                            ],
+                            [
+                              0.25,
+                              10
+                            ],
+                            [
+                              0.4,
+                              0
+                            ]
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "type": "Sprite",
+                "name": "Sprite",
+                "props": {
+                  "texture": "goodness://hero",
+                  "scale": [
+                    0.44,
+                    0.44
+                  ]
+                }
+              },
+              {
+                "type": "Camera2D",
+                "name": "Camera",
+                "props": {
+                  "current": true,
+                  "smoothing_enabled": true,
+                  "smoothing_speed": 6,
+                  "limit_left": 0,
+                  "limit_top": 0,
+                  "limit_right": 1280,
+                  "limit_bottom": 704
+                }
+              },
+              {
+                "type": "RayCast2D",
+                "name": "Eye",
+                "props": {
+                  "target_position": [
+                    0,
+                    0
+                  ],
+                  "debug_draw": false
+                }
+              },
+              {
+                "type": "Particles2D",
+                "name": "Dust",
+                "props": {
+                  "emitting": false,
+                  "amount": 0,
+                  "lifetime": 0.5,
+                  "spread": 40,
+                  "direction": 90,
+                  "speed_min": 20,
+                  "speed_max": 70,
+                  "gravity": [
+                    0,
+                    40
+                  ],
+                  "colors": [
+                    "#5f6f8f",
+                    "#3f4c66"
+                  ],
+                  "scale_min": 0.2,
+                  "scale_max": 0.45
+                }
+              },
+              {
+                "type": "Particles2D",
+                "name": "Sparkle",
+                "props": {
+                  "emitting": false,
+                  "amount": 0,
+                  "lifetime": 0.7,
+                  "spread": 360,
+                  "direction": 0,
+                  "speed_min": 60,
+                  "speed_max": 240,
+                  "gravity": [
+                    0,
+                    300
+                  ],
+                  "colors": [
+                    "#ffd257",
+                    "#7ef0b0"
+                  ],
+                  "scale_min": 0.3,
+                  "scale_max": 0.8
+                }
+              }
+            ]
+          },
+          {
+            "type": "Timer",
+            "name": "Restart",
+            "props": {
+              "wait_time": 6,
+              "one_shot": true,
+              "autostart": false
+            },
+            "connections": [
+              {
+                "signal": "timeout",
+                "to": "Game",
+                "method": "_on_restart"
+              }
+            ]
+          },
+          {
+            "type": "Node",
+            "name": "Game",
+            "script": "\n{\n  extends: 'Node',\n  _ready() { this.reload_guard = 0; },\n\n  /* connected in the scene file to the Restart timer's timeout signal */\n  _on_restart() {\n    if (this.reload_guard) return;\n    this.reload_guard = 1;\n    Goodness.Logger.info('Restarting the dungeon…');\n    this.tree.reload_current_scene();\n  },\n}"
+          },
+          {
+            "type": "CanvasLayer",
+            "name": "HUD",
+            "children": [
+              {
+                "type": "Label",
+                "name": "Title",
+                "props": {
+                  "position": [
+                    24,
+                    14
+                  ],
+                  "text": "🗝️  Dungeon Delve",
+                  "font_size": 24,
+                  "size": [
+                    420,
+                    30
+                  ],
+                  "color": "#eaf1ff",
+                  "outline": 2
+                }
+              },
+              {
+                "type": "Label",
+                "name": "HP",
+                "props": {
+                  "position": [
+                    24,
+                    48
+                  ],
+                  "text": "❤❤❤❤❤",
+                  "font_size": 22,
+                  "size": [
+                    300,
+                    28
+                  ],
+                  "color": "#ff8f8f"
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Score",
+                "props": {
+                  "position": [
+                    24,
+                    76
+                  ],
+                  "text": "Score 0 · gems 0/8",
+                  "font_size": 16,
+                  "size": [
+                    520,
+                    22
+                  ],
+                  "color": "#9db0d0"
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Message",
+                "props": {
+                  "position": [
+                    24,
+                    640
+                  ],
+                  "text": "",
+                  "font_size": 20,
+                  "size": [
+                    1000,
+                    28
+                  ],
+                  "color": "#7ef0b0"
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Hint",
+                "props": {
+                  "position": [
+                    24,
+                    672
+                  ],
+                  "text": "WASD / arrows move · X dash · N toggle the navigation grid",
+                  "font_size": 14,
+                  "size": [
+                    900,
+                    20
+                  ],
+                  "color": "#5f6f8f"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
