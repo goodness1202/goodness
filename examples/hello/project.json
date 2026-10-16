@@ -1,0 +1,100 @@
+{
+  "name": "hello-ball",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "background": "#141a2e"
+  },
+  "main_scene": "main",
+  "assets": {
+    "scripts": {},
+    "images": {}
+  },
+  "scenes": {
+    "main": {
+      "root": {
+        "type": "Node2D",
+        "name": "Main",
+        "children": [
+          {
+            "type": "Sprite",
+            "name": "Ball",
+            "props": {
+              "position": [
+                200,
+                200
+              ],
+              "texture": "goodness://ball"
+            },
+            "script": "\n{\n  extends: 'Sprite',\n  vx: 380, vy: 300,\n  _ready() { SFX.blip(); },\n  _process(delta) {\n    this.position.x += this.vx * delta;\n    this.position.y += this.vy * delta;\n    if (this.position.x < 48 || this.position.x > 1232) { this.vx *= -1; SFX.blip(); }\n    if (this.position.y < 48 || this.position.y > 672) { this.vy *= -1; SFX.blip(); }\n    this.rotation += 160 * delta;\n  }\n}"
+          },
+          {
+            "type": "Particles2D",
+            "name": "Burst",
+            "props": {
+              "amount": 0,
+              "emitting": false,
+              "lifetime": 0.8,
+              "speed_min": 120,
+              "speed_max": 360,
+              "spread": 360,
+              "direction": 0,
+              "gravity": [
+                0,
+                500
+              ],
+              "colors": [
+                "#ffd257",
+                "#66e0d5",
+                "#ff8fd4"
+              ]
+            },
+            "script": "\n{\n  extends: 'Particles2D',\n  _input(ev) {\n    if (ev.type === 'mouse' && ev.pressed) {\n      this.global_position = ev.position;\n      this.burst(26);\n      SFX.click();\n    }\n  }\n}"
+          },
+          {
+            "type": "CanvasLayer",
+            "name": "HUD",
+            "children": [
+              {
+                "type": "Label",
+                "name": "Title",
+                "props": {
+                  "position": [
+                    340,
+                    60
+                  ],
+                  "text": "Hello, Goodness!",
+                  "font_size": 52,
+                  "align": "center",
+                  "size": [
+                    600,
+                    60
+                  ],
+                  "outline": 3
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Hint",
+                "props": {
+                  "position": [
+                    340,
+                    660
+                  ],
+                  "text": "click anywhere for sparkles",
+                  "font_size": 20,
+                  "align": "center",
+                  "size": [
+                    600,
+                    26
+                  ],
+                  "color": "#8ea3c8"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "name": "coin-rush",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "background": "#1a2238"
+  },
+  "main_scene": "main",
+  "assets": {
+    "scripts": {},
+    "images": {}
+  },
+  "scenes": {
+    "main": {
+      "root": {
+        "type": "Node2D",
+        "name": "Main",
+        "children": [
+          {
+            "type": "TileMap",
+            "name": "Level",
+            "props": {
+              "cell_size": 48,
+              "tiles": [
+                "GGGGGGGGGGGGGGGGGGGGGGGGGGGG",
+                "G..........................G",
+                "G..C...........C...........G",
+                "G.....G.....GG......===....G",
+                "G...........C.......C..C...G",
+                "G....==.........GGGGGGGGGG.G",
+                "G......C...E...............G",
+                "G..GG.......GGG....^^......G",
+                "G.......................C..G",
+                "G.....C.....P.....^^...XGGGG",
+                "GGGGGGGGGGGGGGGGGGGGGGGGGGGG"
+              ]
+            }
+          },
+          {
+            "type": "CharacterBody2D",
+            "name": "Player",
+            "props": {
+              "position": [
+                612,
+                450
+              ],
+              "shape": {
+                "type": "rect",
+                "width": 30,
+                "height": 44
+              }
+            },
+            "script": "\n{\n  extends: 'CharacterBody2D',\n  speed: 340,\n  jump_speed: 560,\n  score: 0,\n  total_coins: 0,\n\n  _ready() {\n    this.sprite = this.get_node('Sprite');\n    this.cam = this.get_node('Camera');\n    this.label = this.get_node('../HUD/Score');\n    this.msg = this.get_node('../HUD/Message');\n    this.level = this.get_node('../Level');\n    this.total_coins = this.level.get_cells_by_type('C').length;\n    this.label.text = 'Coins: 0 / ' + this.total_coins + '    Time: 0.0s';\n    this.spawn = this.position.copy();\n    this._start = OS.ticks_msec / 1000;\n  },\n\n  _physics_process(delta) {\n    /* run */\n    const dir = Input.get_axis('ui_left', 'ui_right');\n    this.velocity.x = dir * this.speed;\n    if (dir !== 0) this.sprite.flip_h = dir < 0;\n\n    /* jump — CharacterBody2D gives us coyote time for free */\n    if (Input.is_action_just_pressed('jump') && this.is_on_floor()) {\n      this.velocity.y = -this.jump_speed;\n      SFX.jump();\n    }\n    /* gravity */\n    this.velocity.y += 1000 * delta;\n    this.move_and_slide();\n\n    /* squash & stretch */\n    const target_y = this.on_floor ? 1 : 1.15;\n    this.sprite.scale = this.sprite.scale.lerp(new Vector2(1.1, target_y), 0.15);\n\n    /* hazards & pits */\n    if (this.global_position.y > 760 || this._on_spikes()) this._hurt();\n\n    /* reached the door? */\n    const cell = this.level.world_to_map(this.global_position);\n    if (this.level.get_cell(cell.x, cell.y) === 'X' || this.level.get_cell(cell.x, cell.y + 1) === 'X') this._win();\n\n    /* HUD */\n    const t = OS.ticks_msec / 1000 - this._start;\n    this.label.text = 'Coins: ' + this.score + ' / ' + this.total_coins + '    Time: ' + t.toFixed(1) + 's';\n  },\n\n  _on_spikes() {\n    const cell = this.level.world_to_map(this.global_position.add(new Vector2(0, 18)));\n    return this.level.get_cell(cell.x, cell.y) === '^';\n  },\n\n  collect() {\n    this.score++;\n    SFX.coin();\n    if (this.score >= this.total_coins) {\n      this.msg.text = 'All coins! Run to the door →';\n      this.msg.visible = true;\n    }\n  },\n\n  _hurt() {\n    SFX.hurt();\n    this.global_position = this.spawn;\n    this.velocity = new Vector2(0, 0);\n    this.cam.shake(0.35, 10);\n  },\n\n  _win() {\n    if (this._won) return;\n    this._won = true;\n    SFX.win();\n    const time = OS.ticks_msec / 1000 - this._start;\n    const best = Save.get('best_time', null);\n    let extra = (best === null || time < best)\n      ? ' — NEW BEST!'\n      : ' (best: ' + best.toFixed(1) + 's)';\n    if (best === null || time < best) Save.set('best_time', time);\n    this.msg.text = 'You made it! ' + this.score + '/' + this.total_coins + ' coins in ' + time.toFixed(1) + 's' + extra;\n    this.msg.visible = true;\n  }\n}",
+            "children": [
+              {
+                "type": "Sprite",
+                "name": "Sprite",
+                "props": {
+                  "texture": "goodness://hero",
+                  "scale": [
+                    1.1,
+                    1.1
+                  ]
+                }
+              },
+              {
+                "type": "Camera2D",
+                "name": "Camera",
+                "props": {
+                  "current": true,
+                  "smoothing_enabled": true,
+                  "smoothing_speed": 4,
+                  "zoom": 1.15,
+                  "offset": [
+                    0,
+                    -60
+                  ],
+                  "limit_left": 0,
+                  "limit_top": -200,
+                  "limit_right": 1344,
+                  "limit_bottom": 528
+                }
+              }
+            ]
+          },
+          {
+            "type": "Node2D",
+            "name": "Coins",
+            "script": "\n{\n  extends: 'Node2D',\n  _ready() {\n    /* build a coin Area2D for every 'C' cell in the tilemap */\n    const level = this.get_node('../Level');\n    const player = this.get_node('../Player');\n    for (const cell of level.get_cells_by_type('C')) {\n      const coin = new Goodness.Area2D();\n      coin.name = 'Coin';\n      coin.position = level.map_to_world(cell.x, cell.y);\n      coin.shape = { type: 'circle', radius: 20 };\n      const sprite = new Goodness.Sprite();\n      sprite.texture_src = 'goodness://coin';\n      coin.add_child(sprite);\n      coin.add_to_group('coins');\n      coin.connect('body_entered', (body) => {\n        if (body.name === 'Player' && !coin._taken) {\n          coin._taken = true;\n          player.collect();\n          const t = sprite.create_tween();\n          t.tween_property(sprite, 'scale', new Vector2(1.8, 1.8), 0.12)\n           .then(() => coin.queue_free());\n        }\n      });\n      this.add_child(coin);\n    }\n  },\n  _process(delta) {\n    /* spin the coins */\n    for (const c of this.get_children()) {\n      const s = c.get_child(0);\n      s.rotation += 3 * delta;\n      s.scale = new Vector2(0.9 * Math.abs(Math.cos(s.rotation * 0.7)) + 0.15, 0.9);\n    }\n  }\n}"
+          },
+          {
+            "type": "CharacterBody2D",
+            "name": "Enemy",
+            "props": {
+              "position": [
+                552,
+                312
+              ],
+              "shape": {
+                "type": "rect",
+                "width": 36,
+                "height": 36
+              }
+            },
+            "script": "\n{\n  extends: 'CharacterBody2D',\n  dir: -1,\n  speed: 130,\n\n  _ready() { this.sprite = this.get_node('Sprite'); },\n\n  _physics_process(delta) {\n    this.velocity.x = this.dir * this.speed;\n    this.velocity.y += 1000 * delta;\n    this.move_and_slide();\n    if (this.on_wall) this.dir *= -1;\n    this.sprite.flip_h = this.dir > 0;\n    const player = this.get_node('../Player');\n    if (this.global_position.distance_to(player.global_position) < 42) player._hurt();\n  }\n}",
+            "children": [
+              {
+                "type": "Sprite",
+                "name": "Sprite",
+                "props": {
+                  "texture": "goodness://slime"
+                }
+              }
+            ]
+          },
+          {
+            "type": "CanvasLayer",
+            "name": "HUD",
+            "children": [
+              {
+                "type": "Panel",
+                "name": "Panel",
+                "props": {
+                  "position": [
+                    16,
+                    16
+                  ],
+                  "size": [
+                    460,
+                    54
+                  ]
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Score",
+                "props": {
+                  "position": [
+                    30,
+                    30
+                  ],
+                  "text": "Coins: 0",
+                  "font_size": 24,
+                  "size": [
+                    430,
+                    30
+                  ]
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Message",
+                "props": {
+                  "position": [
+                    240,
+                    90
+                  ],
+                  "text": "",
+                  "font_size": 30,
+                  "align": "center",
+                  "size": [
+                    800,
+                    40
+                  ],
+                  "visible": false,
+                  "outline": 3
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Hint",
+                "props": {
+                  "position": [
+                    240,
+                    660
+                  ],
+                  "text": "A/D or ←/→ move · Space jump · grab coins, dodge the slime, reach the door",
+                  "font_size": 17,
+                  "align": "center",
+                  "size": [
+                    800,
+                    24
+                  ],
+                  "color": "#8ea3c8"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Goodness Engine — Editor</title>
+<link rel="stylesheet" href="editor/editor.css">
+</head>
+<body>
+
+<!-- ============ TOP BAR ============ -->
+<header id="topbar">
+  <div class="logo">⚡ Goodness<span class="ver">editor</span></div>
+
+  <nav class="menus">
+    <div class="menu" data-menu="file">
+      <button class="menu-btn">File</button>
+      <div class="menu-list">
+        <button data-act="new-project">🆕 New Project…</button>
+        <button data-act="save-project">💾 Save Project <span class="kbd">Ctrl+S</span></button>
+        <button data-act="export-project">📦 Export Project (.json)</button>
+        <button data-act="import-project">📂 Import Project…</button>
+        <hr>
+        <button data-act="load-example">🎮 Load Example…</button>
+      </div>
+    </div>
+    <div class="menu" data-menu="edit">
+      <button class="menu-btn">Edit</button>
+      <div class="menu-list">
+        <button data-act="undo">↩ Undo <span class="kbd">Ctrl+Z</span></button>
+        <button data-act="redo">↪ Redo <span class="kbd">Ctrl+Y</span></button>
+        <hr>
+        <button data-act="project-settings">⚙ Project Settings…</button>
+      </div>
+    </div>
+    <div class="menu" data-menu="help">
+      <button class="menu-btn">Help</button>
+      <div class="menu-list">
+        <button data-act="open-tutorials">📚 Tutorials</button>
+        <button data-act="open-api">🌐 API Reference</button>
+        <button data-act="open-docs">📖 Documentation</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="spacer"></div>
+
+  <div class="play-controls">
+    <button id="btn-play" class="play" title="Play the current scene (F5)">▶</button>
+    <button id="btn-pause" class="pause" title="Pause / resume (F6)" disabled>⏸</button>
+    <button id="btn-stop" class="stop" title="Stop (F8)" disabled>⏹</button>
+  </div>
+  <button id="btn-run-tab" title="Run the whole project in a new tab">🚀 Run Project</button>
+
+  <div class="spacer"></div>
+  <div id="scene-title">untitled scene</div>
+</header>
+
+<!-- ============ MAIN LAYOUT ============ -->
+<div id="main">
+
+  <!-- LEFT: scene tree + assets -->
+  <aside id="left-dock">
+    <section class="dock" id="scene-dock">
+      <div class="dock-header">
+        <span> Scene</span>
+        <span class="dock-actions">
+          <button id="btn-add-node" title="Add a child node to the selection (Ctrl+A)">＋</button>
+          <button id="btn-del-node" title="Delete selected node (Del)">🗑</button>
+          <button id="btn-node-up" title="Move up">▲</button>
+          <button id="btn-node-down" title="Move down">▼</button>
+        </span>
+      </div>
+      <div id="scene-tree" class="dock-body"></div>
+    </section>
+    <section class="dock" id="assets-dock">
+      <div class="dock-header">
+        <span> Assets</span>
+        <span class="dock-actions">
+          <button data-atab="scenes" class="tab-btn active">Scenes</button>
+          <button data-atab="scripts" class="tab-btn">Scripts</button>
+          <button data-atab="textures" class="tab-btn">Art</button>
+        </span>
+      </div>
+      <div id="assets-body" class="dock-body"></div>
+    </section>
+  </aside>
+
+  <!-- CENTER: viewport -->
+  <section id="center">
+    <div id="viewport-toolbar">
+      <button id="btn-tool-select" class="tool active" title="Select / move (Q)">🖱 Select</button>
+      <button id="btn-snap" class="tool" title="Snap to grid">🧲 Snap</button>
+      <span class="sep"></span>
+      <span id="viewport-info">100%</span>
+      <span class="sep"></span>
+      <span id="edit-hint">click to select · drag to move · middle-drag / space+drag to pan · wheel to zoom</span>
+    </div>
+    <div id="viewport-wrap">
+      <canvas id="viewport" width="1280" height="720" tabindex="0"></canvas>
+      <div id="play-overlay-label" hidden>▶ PLAYING — press ⏹ to stop</div>
+    </div>
+  </section>
+
+  <!-- RIGHT: inspector -->
+  <aside id="right-dock">
+    <section class="dock" id="inspector-dock">
+      <div class="dock-header"><span> Inspector</span></div>
+      <div id="inspector" class="dock-body"><div class="empty-hint">Select a node to edit its properties.</div></div>
+    </section>
+  </aside>
+</div>
+
+<!-- ============ BOTTOM: tabs ============ -->
+<section id="bottom">
+  <div id="bottom-tabs">
+    <button data-btab="console" class="active">Console</button>
+    <button data-btab="script">Script</button>
+    <button data-btab="tutorial">📚 Tutorials</button>
+    <button data-btab="api">🌐 API + Snippets</button>
+    <span class="spacer"></span>
+    <button id="btn-clear-console">Clear</button>
+    <button id="bottom-collapse">▾</button>
+  </div>
+  <div id="bottom-body">
+    <div id="tab-console" class="btab active">
+      <div id="console-log"></div>
+    </div>
+    <div id="tab-script" class="btab">
+      <div id="script-toolbar">
+        <select id="script-select"></select>
+        <button id="btn-new-script">＋ New Script</button>
+        <button id="btn-save-script">💾 Save &amp; Check</button>
+        <button id="btn-attach-script" title="Attach the open script to the selected node">🔗 Attach to Node</button>
+        <button id="btn-detach-script" title="Remove the script from the selected node">✂ Detach</button>
+        <span id="script-status"></span>
+      </div>
+      <textarea id="script-editor" spellcheck="false" placeholder="// Pick or create a script…"></textarea>
+    </div>
+    <div id="tab-tutorial" class="btab"></div>
+    <div id="tab-api" class="btab"></div>
+  </div>
+</section>
+
+<!-- ============ STATUS BAR ============ -->
+<footer id="statusbar">
+  <span id="status-left">Ready.</span>
+  <span class="spacer"></span>
+  <span id="status-right"></span>
+</footer>
+
+<!-- ============ MODALS ============ -->
+<div id="modal-backdrop" hidden>
+  <div id="modal">
+    <div id="modal-title"></div>
+    <div id="modal-body"></div>
+    <div id="modal-actions"></div>
+  </div>
+</div>
+
+<script src="engine/loader.js"></script>
+<script src="editor/tutorials.js"></script>
+<script src="editor/api_panel.js"></script>
+<script src="editor/editor.js"></script>
+</body>
+</html>

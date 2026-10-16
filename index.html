@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Goodness Engine — complex inside, kind outside</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0b0e17; color: #d7e1f5;
+    font: 16px/1.65 "Segoe UI", Inter, system-ui, sans-serif;
+    overflow-x: hidden;
+  }
+  a { color: #6ea8ff; text-decoration: none; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- hero ---------- */
+  #hero { position: relative; min-height: 92vh; display: flex; align-items: center; overflow: hidden; }
+  #bg-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .hero-inner { position: relative; z-index: 2; display: flex; gap: 48px; align-items: center; padding: 60px 0; flex-wrap: wrap; }
+  .hero-text { flex: 1 1 480px; }
+  .hero-art { flex: 0 1 320px; text-align: center; }
+  .hero-art img { width: 100%; max-width: 300px; border-radius: 24px; box-shadow: 0 20px 80px rgba(79, 211, 140, 0.18); }
+  h1 { font-size: clamp(38px, 6vw, 62px); line-height: 1.08; letter-spacing: -1px; }
+  h1 .g { color: #4fd38c; }
+  .tagline { color: #8a97b4; font-size: 20px; margin: 18px 0 8px; }
+  .sub { color: #5c6a88; font-size: 15px; }
+  .cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+  .cta {
+    display: inline-block; padding: 13px 26px; border-radius: 12px; font-weight: 600; font-size: 16px;
+    border: 1px solid #2c3752; background: #131826; transition: transform 0.12s ease, background 0.12s ease;
+  }
+  .cta:hover { transform: translateY(-2px); }
+  .cta.primary { background: #1d3a2c; border-color: #4fd38c; color: #9ffccc; }
+  .cta.primary:hover { background: #256b4a; }
+  .badges { margin-top: 22px; color: #5c6a88; font-size: 13px; display: flex; gap: 18px; flex-wrap: wrap; }
+  .badges b { color: #8a97b4; font-weight: 600; }
+
+  /* ---------- code sample ---------- */
+  .code-card {
+    margin-top: 34px; background: #0c101b; border: 1px solid #222b42; border-radius: 14px;
+    padding: 18px 22px; font: 13.5px/1.7 ui-monospace, Consolas, monospace; color: #c7d6f5;
+    max-width: 560px; overflow-x: auto;
+  }
+  .code-card .cm { color: #5c6a88; } .code-card .kw { color: #ff8fd4; } .code-card .st { color: #9ffccc; }
+  .code-card .fn { color: #ffd257; }
+
+  /* ---------- features ---------- */
+  section { padding: 70px 0; }
+  h2 { font-size: 30px; margin-bottom: 8px; }
+  h2 span { color: #4fd38c; }
+  .section-sub { color: #8a97b4; margin-bottom: 34px; max-width: 640px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+  .feature { background: #131826; border: 1px solid #26304a; border-radius: 14px; padding: 22px; }
+  .feature .icon { font-size: 26px; }
+  .feature h3 { font-size: 17px; margin: 10px 0 6px; }
+  .feature p { color: #8a97b4; font-size: 14px; }
+
+  /* ---------- api section ---------- */
+  .api-band { background: #0e1524; border-top: 1px solid #1d2740; border-bottom: 1px solid #1d2740; }
+  .api-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+  .api-card { background: #131826; border: 1px solid #26304a; border-radius: 14px; padding: 22px; }
+  .api-card h3 { font-size: 17px; }
+  .api-card .free { color: #4fd38c; font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+  .api-card p { color: #8a97b4; font-size: 14px; margin-top: 8px; }
+  .api-card code { background: #0c101b; padding: 1px 6px; border-radius: 5px; color: #9ffccc; font-size: 12.5px; }
+
+  /* ---------- tutorials ---------- */
+  .tut-rows { display: grid; gap: 12px; }
+  .tut-row { display: flex; gap: 16px; align-items: baseline; background: #131826; border: 1px solid #26304a; border-radius: 12px; padding: 16px 20px; }
+  .tut-row .n { color: #4fd38c; font-weight: 700; font-family: ui-monospace, monospace; }
+  .tut-row a { color: #d7e1f5; font-weight: 600; }
+  .tut-row .t { color: #5c6a88; font-size: 13px; margin-left: auto; white-space: nowrap; }
+
+  footer { border-top: 1px solid #1d2740; padding: 34px 0 60px; color: #5c6a88; font-size: 14px; }
+  footer .links a { margin-right: 20px; }
+</style>
+</head>
+<body>
+
+<!-- ================= HERO ================= -->
+<div id="hero">
+  <canvas id="bg-canvas" width="1920" height="1080"></canvas>
+  <div class="wrap hero-inner">
+    <div class="hero-text">
+      <h1>⚡ Goodness <span class="g">Engine</span></h1>
+      <div class="tagline">Complex inside. Kind outside.</div>
+      <div class="sub">A free, open-source 2D game engine that runs in your browser —
+        with the Godot workflow: nodes, scenes, a visual editor, physics, and games
+        that can fetch live data from free web APIs.</div>
+      <div class="cta-row">
+        <a class="cta primary" href="editor.html">🎮 Open the Editor</a>
+        <a class="cta" href="docs/01-getting-started.md">📚 Read the Tutorial</a>
+        <a class="cta" href="examples/index.html">▶ Play Examples</a>
+      </div>
+      <div class="badges">
+        <span><b>0</b> installs</span><span><b>0</b> assets required</span>
+        <span><b>23</b> node types</span><span><b>3</b> free APIs built in</span>
+      </div>
+      <div class="code-card">
+<span class="cm">// an entire game behaviour, as a Goodness script</span>
+{
+  <span class="kw">extends</span>: <span class="st">'CharacterBody2D'</span>,
+  speed: 340,
+  <span class="fn">_physics_process</span>(delta) {
+    this.velocity.x = Input.<span class="fn">get_axis</span>(<span class="st">'ui_left'</span>, <span class="st">'ui_right'</span>) * this.speed;
+    <span class="kw">if</span> (Input.<span class="fn">is_action_just_pressed</span>(<span class="st">'jump'</span>) &amp;&amp; this.<span class="fn">is_on_floor</span>()) {
+      this.velocity.y = -560;
+      SFX.<span class="fn">jump</span>();
+    }
+    this.velocity.y += 1000 * delta;
+    this.<span class="fn">move_and_slide</span>();
+  },
+}
+      </div>
+    </div>
+    <div class="hero-art">
+      <img src="assets/mascot.png" alt="Goodness Engine mascot — a friendly robot holding a game controller">
+    </div>
+  </div>
+</div>
+
+<!-- ================= FEATURES ================= -->
+<section>
+  <div class="wrap">
+    <h2>Everything a 2D game needs, <span>nothing it doesn't</span></h2>
+    <p class="section-sub">The depth of a real engine — physics, tweens, particles, tilemaps,
+    a synth — behind APIs you can learn in an afternoon.</p>
+    <div class="grid">
+      <div class="feature"><div class="icon">🌳</div><h3>Node &amp; scene system</h3><p>Godot-style trees with instancing, groups, signals and a searchable class registry. Compose, don't inherit.</p></div>
+      <div class="feature"><div class="icon">🎨</div><h3>Visual editor</h3><p>Scene dock, inspector, viewport with gizmos, play mode, script editor with live compile checks, console — in your browser.</p></div>
+      <div class="feature"><div class="icon">🏃</div><h3>Arcade physics</h3><p>CharacterBody2D with move_and_slide + coyote time, rigid bodies with bounce, one-way platforms, areas, raycasts.</p></div>
+      <div class="feature"><div class="icon">🧩</div><h3>Tilemap levels</h3><p>Draw entire levels as strings of characters. Solid tiles collide automatically. The friendliest level format around.</p></div>
+      <div class="feature"><div class="icon">✨</div><h3>Effects &amp; juice</h3><p>Tweens with 16 easings, a full particle system, screen shake, squash &amp; stretch — plus a WebAudio synth: sound with zero files.</p></div>
+      <div class="feature"><div class="icon">🖼</div><h3>Procedural art library</h3><p>30+ built-in textures (hero, slime, ship, coin, torch…) — build and ship complete games without downloading a single asset.</p></div>
+      <div class="feature"><div class="icon">🌐</div><h3>Free APIs built in</h3><p>PokéAPI, Open Trivia DB and Open-Meteo — free, no keys — with caching, timeouts and offline-fallback patterns.</p></div>
+      <div class="feature"><div class="icon">💾</div><h3>Publish anywhere</h3><p>A project is one JSON file. Run it from the repo, bundle it to a single .js + html, or drop it on any static host.</p></div>
+      <div class="feature"><div class="icon">📚</div><h3>Taught, not just documented</h3><p>Interactive in-editor lessons that watch your moves and auto-advance, a runnable-snippet API panel, and a 10-chapter docs book.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FREE APIs ================= -->
+<section class="api-band">
+  <div class="wrap">
+    <h2>The internet is your <span>content pipeline</span></h2>
+    <p class="section-sub">The engine ships with first-class wrappers for three complete,
+    free, key-less public APIs — and an in-editor training panel that teaches you to use
+    them with live, runnable snippets.</p>
+    <div class="api-cards">
+      <div class="api-card">
+        <div class="free">FREE · NO KEY · 1025 CREATURES</div>
+        <h3>🐾 PokéAPI</h3>
+        <p>Sprites, stats, types and real damage-effectiveness math. <code>API.pokemon.random()</code> and your battler has a roster of a thousand.</p>
+      </div>
+      <div class="api-card">
+        <div class="free">FREE · NO KEY · 4000+ QUESTIONS</div>
+        <h3>❓ Open Trivia DB</h3>
+        <p>Quiz questions in 24 categories, HTML-decoded and shuffled for you. <code>API.trivia.questions({amount: 10})</code> — that's a quiz game.</p>
+      </div>
+      <div class="api-card">
+        <div class="free">FREE · NO KEY · WHOLE PLANET</div>
+        <h3>🌦 Open-Meteo</h3>
+        <p>Live weather for any coordinates. Rain particles when it actually rains on the player. <code>API.weather.current()</code></p>
+      </div>
+    </div>
+    <p style="margin-top:22px"><a href="docs/08-free-apis.md">Read the free-API guide →</a></p>
+  </div>
+</section>
+
+<!-- ================= TUTORIALS ================= -->
+<section>
+  <div class="wrap">
+    <h2>Learn it in an <span>afternoon</span></h2>
+    <p class="section-sub">Start with the interactive lessons in the editor (📚 Tutorials tab) — they watch what you do and auto-advance. The docs are the deep companion.</p>
+    <div class="tut-rows">
+      <div class="tut-row"><span class="n">01</span><a href="docs/01-getting-started.md">Getting Started — zero to game in ten minutes</a><span class="t">10 min</span></div>
+      <div class="tut-row"><span class="n">02</span><a href="docs/02-editor-guide.md">The Editor — every panel explained</a><span class="t">8 min</span></div>
+      <div class="tut-row"><span class="n">03</span><a href="docs/03-nodes-and-scenes.md">Nodes &amp; Scenes — the mental model</a><span class="t">10 min</span></div>
+      <div class="tut-row"><span class="n">04</span><a href="docs/04-scripting.md">Scripting — behaviour without boilerplate</a><span class="t">15 min</span></div>
+      <div class="tut-row"><span class="n">05</span><a href="docs/05-physics.md">Physics — bodies, areas and rays</a><span class="t">10 min</span></div>
+      <div class="tut-row"><span class="n">06</span><a href="docs/06-input-sound-ui.md">Input, Sound &amp; UI</a><span class="t">10 min</span></div>
+      <div class="tut-row"><span class="n">07</span><a href="docs/07-tilemaps.md">TileMaps — levels from strings</a><span class="t">6 min</span></div>
+      <div class="tut-row"><span class="n">08</span><a href="docs/08-free-apis.md">Free APIs — live data in your game</a><span class="t">12 min</span></div>
+      <div class="tut-row"><span class="n">09</span><a href="docs/09-saving-and-publishing.md">Saving &amp; Publishing</a><span class="t">6 min</span></div>
+      <div class="tut-row"><span class="n">10</span><a href="docs/10-architecture.md">Architecture — how it works inside</a><span class="t">10 min</span></div>
+      <div class="tut-row"><span class="n">++</span><a href="docs/api-reference.md">Full API Reference (auto-generated from the engine)</a><span class="t">reference</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <a href="editor.html">Editor</a>
+      <a href="examples/index.html">Examples</a>
+      <a href="docs/01-getting-started.md">Docs</a>
+      <a href="tests.html">Tests</a>
+      <a href="https://github.com/goodness1202/goodness">GitHub</a>
+    </div>
+    <p style="margin-top:14px">Goodness Engine v0.1.0 — MIT license. The floating background
+    on this page is rendered by the engine itself, using its own procedural art.</p>
+  </div>
+</footer>
+
+<script src="engine/loader.js"></script>
+<script>
+/* Hero background: the engine rendering its own procedural art — dogfooding. */
+(() => {
+  const canvas = document.getElementById('bg-canvas');
+  const resize = () => {
+    canvas.width = window.innerWidth * (window.devicePixelRatio > 1 ? 1 : 1);
+    canvas.height = Math.max(600, document.getElementById('hero').offsetHeight);
+  };
+  resize();
+  window.addEventListener('resize', resize);
+
+  const names = ['star', 'gem', 'coin', 'heart', 'bubble', 'diamond', 'flame'];
+  const sprites = [];
+  for (let i = 0; i < 22; i++) {
+    sprites.push({
+      name: names[i % names.length],
+      x: Math.random() * 1920,
+      y: Math.random() * 1080,
+      vx: (Math.random() - 0.5) * 34,
+      vy: (Math.random() - 0.5) * 34,
+      rot: Math.random() * 360,
+      vr: (Math.random() - 0.5) * 26,
+      size: 0.24 + Math.random() * 0.5,
+    });
+  }
+  const ctx = canvas.getContext('2d');
+  let last = performance.now();
+
+  function frame(t) {
+    const dt = Math.min(0.05, (t - last) / 1000);
+    last = t;
+    const w = canvas.width, h = canvas.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    /* transparent so the CSS bg shows through */
+    ctx.clearRect(0, 0, w, h);
+    for (const s of sprites) {
+      s.x += s.vx * dt; s.y += s.vy * dt; s.rot += s.vr * dt;
+      if (s.x < -80) s.x = w + 80; if (s.x > w + 80) s.x = -80;
+      if (s.y < -80) s.y = h + 80; if (s.y > h + 80) s.y = -80;
+      const tex = GE.ProceduralTextures.create(s.name);
+      if (!tex || !tex.image) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.rot * Math.PI / 180);
+      const sz = 96 * s.size;
+      ctx.drawImage(tex.image, -sz / 2, -sz / 2, sz, sz);
+      ctx.restore();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

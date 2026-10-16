@@ -1,0 +1,451 @@
+# Goodness Engine — API Reference
+
+> Generated from the engine source (v0.1.0) by `tools/gen_api_docs.mjs`.
+> Every node, property, method and signal the editor knows about.
+
+## Value types
+
+### Vector2 — `new Vector2(x, y)`
+`add sub mul div neg · dot cross · length normalized · distance_to direction_to · rotate(deg) · lerp · angle_to · angle_to_point · limit_length`
+Constants: `Vector2.ZERO ONE UP DOWN LEFT RIGHT`. Y points **down** (screen space).
+
+### Color — `new Color(r, g, b, a)` (0–1 floats) or `Color.from("#ff8000")`
+`lerp lighten darken with_alpha to_css to_hex`. Preset constants: `WHITE BLACK RED GREEN BLUE YELLOW ORANGE PURPLE CYAN GRAY`.
+
+### Rect2 — `new Rect2(x, y, w, h)`
+`has(point) intersects(other) grow(by) expand(point) center area`.
+
+### Signals — `node.connect("signal", target, "method")` / `node.signals.name.connect(fn)`
+`connect(target, method) · connect(fn) · disconnect · emit(args…)`. Deferred-safe and re-entrancy guarded.
+
+## Node classes
+
+| Class | Extends | Category | Purpose |
+|---|---|---|---|
+| 🔵 **Node** | — | Logic | Base building block of a scene. Organizes the tree and runs logic. |
+| ✳️ **Node2D** | Node | Logic | A node with a 2D transform. Base for everything positioned in the world. |
+| 🧱 **StaticBody2D** | PhysicsBody2D | Physics | Immovable collider. Floors, walls, platforms (set one_way for jump-through). |
+| 🎳 **RigidBody2D** | PhysicsBody2D | Physics | Bodies pushed by gravity and collisions. Great for balls, crates, debris. |
+| 🏃 **CharacterBody2D** | PhysicsBody2D | Physics | Player-style body. Call move_and_slide() every physics frame and it never sticks in walls. |
+| 📡 **Area2D** | PhysicsBody2D | Physics | Overlap detector: coins, triggers, hazards. Emits body_entered / area_entered. |
+| 🖼️ **Sprite** | Node2D | Visual | Draws a texture. Use built-in art via "goodness://hero", URLs or project images. |
+| 🎞️ **AnimatedSprite** | Node2D | Visual | Sprite with named animations. Build frame lists from built-in art or sprite sheets. |
+| ⬛ **ColorRect** | Node2D | Visual | Solid rectangle — floors, backgrounds, bars, simple characters. |
+| 📐 **Polygon2D** | Node2D | Visual | Solid polygon from a point list (JSON array of [x, y]). |
+| 🎥 **Camera2D** | Node2D | Visual | Scrolling camera. Make it follow a node (script sets position) or drag it around. |
+| 🪟 **CanvasLayer** | Node | Visual | Screen-space layer for HUDs and menus. Children ignore the camera. |
+| 🧩 **TileMap** | Node2D | World | Grid level built from strings of tiles. Draws tiles and collides solids. |
+| 🔤 **Label** | Control | UI | Text on screen. Score, dialogue, titles. |
+| 🔘 **Button** | Control | UI | Clickable button. Emits the "pressed" signal. |
+| 📶 **ProgressBar** | Control | UI | Health bars, loading bars, XP bars. |
+| ▭ **Panel** | Control | UI | Rounded translucent panel — the backbone of good-looking HUDs. |
+| ⏱️ **Timer** | Node | Logic | Calls its "timeout" signal after wait_time seconds. One-shot or looping. |
+| ✨ **Particles2D** | Node2D | Effects | Fire, sparks, dust, explosions, confetti — without any art files. |
+| 🔊 **AudioPlayer** | Node | Audio | Plays an audio file. For quick effects, try the SFX synth (no files needed). |
+| 🌐 **HTTPRequest** | Node | Net | Fetch data from the web. Auto-parses JSON. Emits request_completed / request_failed. |
+
+---
+
+### 🔵 Node
+
+Base building block of a scene. Organizes the tree and runs logic.
+
+| Property | Type | Description |
+|---|---|---|
+| `name` | string | Unique name of this node among its siblings. |
+
+| Method | Description |
+|---|---|
+| `add_child(node)` | Add a child node. Fails on invalid names or cycles. |
+| `get_node(path)` | Fetch a relative or absolute node, e.g. 'Player/Sprite' or '../../HUD'. |
+| `get_parent()` | Return the parent node (null for the root). |
+| `queue_free()` | Delete this node safely at the end of the frame. |
+| `connect(signal, target, method)` | Connect one of this node's signals to a method. |
+| `emit_signal(name, ...args)` | Fire a signal with arguments. |
+| `add_to_group(name) / is_in_group(name)` | Group management (e.g. "enemies"). |
+| `create_tween()` | Build a chained tween driven by this node. |
+
+---
+
+### ✳️ Node2D
+
+A node with a 2D transform. Base for everything positioned in the world.
+
+| Property | Type | Description |
+|---|---|---|
+| `position` | vector2 | Position relative to the parent (pixels). |
+| `rotation` | number | Rotation in degrees. |
+| `scale` | vector2 | Scale (1,1 = normal). |
+| `z_index` | number | Draw order. Higher draws on top. |
+| `visible` | bool | Hide or show this branch. |
+
+| Method | Description |
+|---|---|
+| `move_toward(target, max_dist)` | Move toward a point, at most max_dist pixels. |
+| `get_angle_to(point)` | Angle (degrees) from this node to a world point. |
+| `to_local(world_point) / to_global(local_point)` | Convert coordinates between local and world space. |
+| `look_at(point)` | Rotate to face a world point. |
+
+---
+
+### 🧱 StaticBody2D
+
+Immovable collider. Floors, walls, platforms (set one_way for jump-through).
+*Extends `PhysicsBody2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `one_way_collision` | bool | Only collide from the top (platforms). |
+
+---
+
+### 🎳 RigidBody2D
+
+Bodies pushed by gravity and collisions. Great for balls, crates, debris.
+*Extends `PhysicsBody2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `mass` | number | Heavier bodies push lighter ones. |
+| `gravity_scale` | number | 0 = floating, 2 = double gravity. |
+| `bounce` | number | 0..1 bounciness. |
+| `linear_damp` | number | Air resistance. |
+
+| Method | Description |
+|---|---|
+| `apply_impulse(vec)` | Kick the body with an impulse (px/s). |
+
+---
+
+### 🏃 CharacterBody2D
+
+Player-style body. Call move_and_slide() every physics frame and it never sticks in walls.
+*Extends `PhysicsBody2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `coyote_time` | number | Seconds of jump grace after leaving a ledge. |
+
+| Method | Description |
+|---|---|
+| `move_and_slide(velocity)` | Move with collision sliding. Updates on_floor / on_wall / on_ceiling. |
+| `is_on_floor()` | True while standing on ground (or within coyote_time). |
+
+---
+
+### 📡 Area2D
+
+Overlap detector: coins, triggers, hazards. Emits body_entered / area_entered.
+*Extends `PhysicsBody2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `monitoring` | bool | Detect overlaps. |
+| `detect_statics` | bool | Also detect static bodies (triggers). |
+
+| Method | Description |
+|---|---|
+| `get_overlapping_bodies()` | Bodies currently inside this area. |
+
+---
+
+### 🖼️ Sprite
+
+Draws a texture. Use built-in art via "goodness://hero", URLs or project images.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `texture` | texture | Image to draw ("goodness://star", URL or project image). |
+| `modulate` | color | Tint color. |
+| `flip_h` | bool | Mirror horizontally. |
+| `flip_v` | bool | Mirror vertically. |
+| `region` | json | Optional sub-rect {x,y,w,h} for sprite sheets. |
+
+| Method | Description |
+|---|---|
+| `get_rect()` | World-space rect covered by this sprite. |
+| `set_texture(src)` | Async: set texture from a source string. |
+
+---
+
+### 🎞️ AnimatedSprite
+
+Sprite with named animations. Build frame lists from built-in art or sprite sheets.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `animations` | json | Animation dictionary (JSON). |
+| `autoplay` | string | Animation to play on start. |
+| `speed_scale` | number | Playback speed multiplier. |
+| `modulate` | color | Tint color. |
+
+| Method | Description |
+|---|---|
+| `play('walk')` | Play an animation (loops unless loop:false). |
+| `stop() / pause()` | Control playback. |
+
+---
+
+### ⬛ ColorRect
+
+Solid rectangle — floors, backgrounds, bars, simple characters.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `size` | vector2 | Width/height in pixels. |
+| `color` | color | Fill color. |
+| `corner_radius` | number | Rounded corners. |
+
+---
+
+### 📐 Polygon2D
+
+Solid polygon from a point list (JSON array of [x, y]).
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `points` | json | Array of [x,y] points. |
+| `color` | color | Fill color. |
+
+---
+
+### 🎥 Camera2D
+
+Scrolling camera. Make it follow a node (script sets position) or drag it around.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `zoom` | number | Zoom (2 = half size, 0.5 = double). |
+| `offset` | vector2 | Viewport offset in pixels. |
+| `current` | bool | Use this camera. |
+| `smoothing_enabled` | bool | Ease into position. |
+| `smoothing_speed` | number | Smoothing speed. |
+| `limit_left` | number | Left scroll limit. |
+| `limit_top` | number | Top scroll limit. |
+| `limit_right` | number | Right scroll limit. |
+| `limit_bottom` | number | Bottom scroll limit. |
+
+| Method | Description |
+|---|---|
+| `make_current()` | Activate this camera. |
+| `shake(duration, strength)` | Screen shake! |
+
+---
+
+### 🪟 CanvasLayer
+
+Screen-space layer for HUDs and menus. Children ignore the camera.
+
+| Property | Type | Description |
+|---|---|---|
+| `layer` | number | Draw order between layers. |
+| `visible` | bool | Show/hide the layer. |
+
+---
+
+### 🧩 TileMap
+
+Grid level built from strings of tiles. Draws tiles and collides solids.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `tiles` | tiles | Rows of characters — the level itself. |
+| `cell_size` | number | Tile size in pixels. |
+| `solid_tiles` | string | Characters that collide (default GD#BW). |
+
+| Method | Description |
+|---|---|
+| `get_cell(x, y) / set_cell(x, y, char)` | Edit tiles at runtime. |
+| `world_to_map(p) / map_to_world(x, y)` | Convert world pixels <-> grid cells. |
+| `get_cells_by_type('C')` | Positions (grid coords) of all cells with a char. |
+| `is_cell_solid(x, y)` | Check solidity at a grid cell. |
+
+---
+
+### 🔤 Label
+
+Text on screen. Score, dialogue, titles.
+*Extends `Control`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `text` | string | Text to show. |
+| `font_size` | number | Font size. |
+| `color` | color | Text color. |
+| `align` | enum | Alignment inside size.x. |
+| `outline` | number | Outline thickness. |
+| `autowrap` | bool | Wrap words inside size.x. |
+| `size` | vector2 | Wrap box (when autowrap is on). |
+
+---
+
+### 🔘 Button
+
+Clickable button. Emits the "pressed" signal.
+*Extends `Control`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `text` | string | Button label. |
+| `font_size` | number | Font size. |
+| `size` | vector2 | Button size. |
+| `bg_color` | color | Normal background. |
+| `hover_color` | color | Mouse-over background. |
+| `pressed_color` | color | While pressed. |
+| `text_color` | color | Label color. |
+| `corner_radius` | number | Rounded corners. |
+| `disabled` | bool | Ignore clicks. |
+
+| Method | Description |
+|---|---|
+| `connect('pressed', node, 'method')` | React to clicks. |
+
+---
+
+### 📶 ProgressBar
+
+Health bars, loading bars, XP bars.
+*Extends `Control`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `value` | number | Current value. |
+| `max_value` | number | Value at full bar. |
+| `size` | vector2 | Bar size. |
+| `bg_color` | color | Track color. |
+| `fill_color` | color | Fill color. |
+| `show_text` | bool | Show the value as text. |
+
+---
+
+### ▭ Panel
+
+Rounded translucent panel — the backbone of good-looking HUDs.
+*Extends `Control`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `size` | vector2 | Panel size. |
+| `color` | color | Fill (alpha supported). |
+| `border_color` | color | Border color. |
+| `corner_radius` | number | Corner rounding. |
+
+---
+
+### ⏱️ Timer
+
+Calls its "timeout" signal after wait_time seconds. One-shot or looping.
+
+| Property | Type | Description |
+|---|---|---|
+| `wait_time` | number | Seconds per cycle. |
+| `one_shot` | bool | Fire once (true) or loop (false). |
+| `autostart` | bool | Start automatically. |
+| `process_always` | bool | Keep running while paused. |
+
+| Method | Description |
+|---|---|
+| `start(time)` | Start (optionally with a new wait_time). |
+| `stop()` | Stop and reset. |
+
+---
+
+### ✨ Particles2D
+
+Fire, sparks, dust, explosions, confetti — without any art files.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `emitting` | bool | Spawn particles. |
+| `amount` | number | Particles alive at once. |
+| `lifetime` | number | Seconds each particle lives. |
+| `direction` | number | Emission angle in degrees. |
+| `spread` | number | Cone width around direction. |
+| `speed_min` | number | Min launch speed. |
+| `speed_max` | number | Max launch speed. |
+| `gravity` | vector2 | Per-particle gravity. |
+| `scale_min` | number | Min size. |
+| `scale_max` | number | Max size. |
+| `colors` | json | Color ramp, e.g. ["#ffd257", "#ff5a5f"]. |
+| `explosiveness` | number | 0 = stream, 1 = burst. |
+| `texture` | texture | Optional particle texture. |
+
+| Method | Description |
+|---|---|
+| `burst(count)` | Spawn a one-off burst immediately. |
+
+---
+
+### 🔊 AudioPlayer
+
+Plays an audio file. For quick effects, try the SFX synth (no files needed).
+
+| Property | Type | Description |
+|---|---|---|
+| `stream` | string | Audio URL or data: URL (mp3/ogg/wav). |
+| `volume` | number | Loudness. |
+| `loop` | bool | Loop playback. |
+| `autoplay` | bool | Play on scene start. |
+
+| Method | Description |
+|---|---|
+| `play() / stop() / pause()` | Transport controls. |
+
+---
+
+### 🌐 HTTPRequest
+
+Fetch data from the web. Auto-parses JSON. Emits request_completed / request_failed.
+
+| Property | Type | Description |
+|---|---|---|
+| `timeout` | number | Seconds before giving up. |
+
+| Method | Description |
+|---|---|
+| `request(url, {method, headers, body})` | Start a request (emits request_completed with text). |
+| `request_json(url)` | Same, but parses JSON for you. |
+
+---
+
+## Singletons (bare names inside scripts)
+
+| Name | What it does | Highlights |
+|---|---|---|
+| `Input` | keyboard/mouse/gamepad with actions | `is_action_pressed` `is_action_just_pressed` `get_axis` `get_vector` `map_action` `mouse_position` `get_world_mouse(tree)` |
+| `SFX` | synthesized sound effects | `jump coin hit hurt explosion laser powerup click blip win lose step spawn` + `play({wave,freq,…})` |
+| `Music` | chiptune sequencer | `play([{n:"E4",d:0.5},…], {tempo,wave,loop})` `stop()` |
+| `OS` | engine & platform info | `fps ticks_msec window_size platform datetime` |
+| `Save` | persistent data | `set get has erase keys` `save_game(slot) load_game(slot)` |
+| `Assets` | textures & files | `load_texture(src) preload` `builtin_names()` |
+| `API` | free web APIs | `pokemon.*` `trivia.*` `weather.*` `http.*` (see docs/08-free-apis.md) |
+| `Goodness` | the whole engine | every class, `boot_project`, `run` |
+
+Math helpers available as bare names: `lerp clamp lerp_angle remap smoothstep deg2rad rad2deg randf randi randf_range randi_range choose`, plus `Vector2 Color Rect2`.
+
+## Script lifecycle
+
+| Method | When it runs |
+|---|---|
+| `_ready()` | once, when the node enters the scene tree |
+| `_process(delta)` | every rendered frame |
+| `_physics_process(delta)` | every physics tick (60 Hz fixed) |
+| `_input(event)` | every input event (return `true` to consume) |
+| `_exit_tree()` | when the node leaves the tree |
+
+Non-function properties in a script literal become default values on the node:
+
+```js
+{
+  extends: "Sprite",
+  speed: 300,               // this.speed === 300
+  _process(delta) { this.position.x += this.speed * delta; },
+}
+```

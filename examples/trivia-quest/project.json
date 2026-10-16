@@ -1,0 +1,224 @@
+{
+  "name": "trivia-quest",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "background": "#141a2e"
+  },
+  "main_scene": "main",
+  "assets": {
+    "scripts": {},
+    "images": {}
+  },
+  "scenes": {
+    "main": {
+      "root": {
+        "type": "Node2D",
+        "name": "Main",
+        "children": [
+          {
+            "type": "Node2D",
+            "name": "Quiz",
+            "script": "\n{\n  extends: 'Node2D',\n  questions: [],\n  index: 0,\n  score: 0,\n  streak: 0,\n  best_streak: 0,\n  state: 'loading',   // loading | asking | reveal | done\n\n  /* Offline safety net — if the API is unreachable we still play. */\n  fallback: [\n    { question: 'Which engine powers this game?', answers: ['Goodness Engine', 'Badness Engine', 'Mediocrity Engine', 'No Engine'], correct_index: 0 },\n    { question: 'What does a Timer node emit when it finishes?', answers: ['timeout', 'time-in', 'ding', 'finished'], correct_index: 0 },\n    { question: 'Which node detects overlaps without colliding?', answers: ['Area2D', 'StaticBody2D', 'Camera2D', 'Label'], correct_index: 0 },\n    { question: 'What is gravity by default in Goodness (px/s²)?', answers: ['980', '98', '9.8', '9800'], correct_index: 0 },\n    { question: 'Which API provides this quiz when online?', answers: ['Open Trivia DB', 'Closed Trivia DB', 'Trivia Vault', 'QuizCorp'], correct_index: 0 },\n    { question: 'Pixels travel downward along which axis?', answers: ['Y', 'X', 'Z', 'W'], correct_index: 0 },\n    { question: 'Which method runs once when a node enters the tree?', answers: ['_ready()', '_start()', '_boot()', '_init_tree()'], correct_index: 0 },\n    { question: 'What moves a CharacterBody2D safely?', answers: ['move_and_slide()', 'walk_please()', 'teleport()', 'shuffle()'], correct_index: 0 },\n  ],\n\n  _ready() {\n    this.hud = this.get_node('../HUD');\n    this.q_label = this.hud.get_node('Question');\n    this.meta = this.hud.get_node('Meta');\n    this.bar = this.hud.get_node('TimeBar');\n    this.panel = this.hud.get_node('Panel');\n    this.reveal = this.hud.get_node('Reveal');\n    this.celebration = this.get_node('Celebration');\n    this.buttons = [];\n    for (let i = 0; i < 4; i++) {\n      const b = this.hud.get_node('Answer' + i);\n      b._idx = i;\n      b.connect('pressed', () => { this._last_pressed = b._idx; this._answer(); });\n      this.buttons.push(b);\n    }\n    this._load();\n  },\n\n  async _load() {\n    this.q_label.text = 'Summoning questions…';\n    this.meta.text = '';\n    let online = true;\n    try {\n      this.questions = await API.trivia.questions({ amount: 8, category: 9, difficulty: 'medium' });\n      this.meta.text = 'live from the Open Trivia DB 🌐';\n    } catch (err) {\n      online = false;\n      this.questions = this.fallback;\n      this.meta.text = 'offline mode — built-in questions';\n    }\n    this.index = 0; this.score = 0; this.streak = 0; this.best_streak = 0;\n    this.state = 'asking';\n    SFX.blip();\n    this._show();\n  },\n\n  _show() {\n    const q = this.questions[this.index];\n    this.q_label.text = 'Q' + (this.index + 1) + '.  ' + q.question;\n    for (let i = 0; i < 4; i++) {\n      const b = this.buttons[i];\n      const has = q.answers[i] !== undefined;\n      b.visible = has;\n      b.disabled = false;\n      b.text = has ? q.answers[i] : '';\n      b.bg_color = new Goodness.Color(0.16, 0.2, 0.31);\n    }\n    this.reveal.visible = false;\n    this._time_left = 15;\n    this._tick_timer = 0;\n  },\n\n  _answer() {\n    if (this.state !== 'asking') return;\n    const q = this.questions[this.index];\n    const picked = this._last_pressed;\n    const correct = picked === q.correct_index;\n    if (correct) {\n      this.score += 10 + Math.floor(this._time_left);\n      this.streak++;\n      this.best_streak = Math.max(this.best_streak, this.streak);\n      this.buttons[picked].bg_color = new Goodness.Color(0.2, 0.6, 0.32);\n      SFX.coin();\n      this.celebration.position = this.buttons[picked].position.add(new Vector2(80, 20));\n      this.celebration.burst(24);\n    } else {\n      this.streak = 0;\n      if (picked >= 0) this.buttons[picked].bg_color = new Goodness.Color(0.7, 0.25, 0.25);\n      this.buttons[q.correct_index].bg_color = new Goodness.Color(0.2, 0.6, 0.32);\n      SFX.hurt();\n    }\n    this.state = 'reveal';\n    this._reveal_timer = 1.2;\n    this.reveal.text = correct ? 'Correct! ' + (this.streak > 1 ? this.streak + 'x streak! ' : '') : 'Nope — it was: ' + q.answers[q.correct_index];\n    this.reveal.color = correct ? '#7ef0b0' : '#ff8f8f';\n    this.reveal.visible = true;\n  },\n\n  _process(delta) {\n    this.meta.text = this.meta.text.split(' · ')[0] + ' · score ' + this.score + ' · streak ' + this.streak;\n\n    if (this.state === 'asking') {\n      this._time_left -= delta;\n      this.bar.value = Math.max(0, this._time_left / 15 * 100);\n      if (this._time_left <= 0) {\n        this._last_pressed = -1;\n        this._answer();\n      }\n    } else if (this.state === 'reveal') {\n      this._reveal_timer -= delta;\n      if (this._reveal_timer <= 0) {\n        this.index++;\n        if (this.index >= this.questions.length) this._finish();\n        else { this.state = 'asking'; this._show(); }\n      }\n    } else if (this.state === 'done-wait') {\n      this._restart_timer -= delta;\n      if (this._restart_timer <= 0) this._load();\n    }\n  },\n\n  _finish() {\n    this.state = 'done';\n    SFX.win();\n    const grade = this.score >= 100 ? 'S' : this.score >= 70 ? 'A' : this.score >= 40 ? 'B' : 'C';\n    const prev_best = Save.get('trivia_best', 0);\n    if (this.score > prev_best) Save.set('trivia_best', this.score);\n    this.q_label.text = 'Finished!  Score: ' + this.score + '  (best streak ' + this.best_streak + ', grade ' + grade + ')';\n    this.reveal.text = 'best: ' + Math.max(prev_best, this.score) + ' — restarting in 5s…';\n    this.reveal.visible = true;\n    for (const b of this.buttons) b.visible = false;\n    this._restart_timer = 5;\n    this.state = 'done-wait';\n  },\n\n}",
+            "children": [
+              {
+                "type": "Particles2D",
+                "name": "Celebration",
+                "props": {
+                  "emitting": false,
+                  "amount": 0,
+                  "lifetime": 0.9,
+                  "spread": 360,
+                  "direction": 0,
+                  "speed_min": 80,
+                  "speed_max": 300,
+                  "gravity": [
+                    0,
+                    400
+                  ],
+                  "colors": [
+                    "#ffd257",
+                    "#7ef0b0",
+                    "#66e0d5",
+                    "#ff8fd4"
+                  ],
+                  "scale_min": 0.5,
+                  "scale_max": 1.3
+                }
+              }
+            ]
+          },
+          {
+            "type": "CanvasLayer",
+            "name": "HUD",
+            "children": [
+              {
+                "type": "Panel",
+                "name": "Panel",
+                "props": {
+                  "position": [
+                    140,
+                    130
+                  ],
+                  "size": [
+                    1000,
+                    200
+                  ]
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Question",
+                "props": {
+                  "position": [
+                    170,
+                    155
+                  ],
+                  "text": "Loading…",
+                  "font_size": 30,
+                  "size": [
+                    940,
+                    150
+                  ],
+                  "autowrap": true
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Meta",
+                "props": {
+                  "position": [
+                    140,
+                    100
+                  ],
+                  "text": "",
+                  "font_size": 20,
+                  "size": [
+                    800,
+                    26
+                  ],
+                  "color": "#9db0d0"
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Answer0",
+                "props": {
+                  "position": [
+                    140,
+                    360
+                  ],
+                  "size": [
+                    485,
+                    60
+                  ],
+                  "font_size": 21,
+                  "text": "…"
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Answer1",
+                "props": {
+                  "position": [
+                    655,
+                    360
+                  ],
+                  "size": [
+                    485,
+                    60
+                  ],
+                  "font_size": 21,
+                  "text": "…"
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Answer2",
+                "props": {
+                  "position": [
+                    140,
+                    440
+                  ],
+                  "size": [
+                    485,
+                    60
+                  ],
+                  "font_size": 21,
+                  "text": "…"
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Answer3",
+                "props": {
+                  "position": [
+                    655,
+                    440
+                  ],
+                  "size": [
+                    485,
+                    60
+                  ],
+                  "font_size": 21,
+                  "text": "…"
+                }
+              },
+              {
+                "type": "ProgressBar",
+                "name": "TimeBar",
+                "props": {
+                  "position": [
+                    140,
+                    530
+                  ],
+                  "size": [
+                    1000,
+                    16
+                  ],
+                  "value": 100,
+                  "fill_color": "#7ef0b0"
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Reveal",
+                "props": {
+                  "position": [
+                    140,
+                    570
+                  ],
+                  "text": "",
+                  "font_size": 26,
+                  "size": [
+                    1000,
+                    34
+                  ],
+                  "color": "#7ef0b0",
+                  "visible": false
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Credit",
+                "props": {
+                  "position": [
+                    140,
+                    660
+                  ],
+                  "text": "questions © Open Trivia DB (opentdb.com) — a free, keyless API",
+                  "font_size": 15,
+                  "size": [
+                    900,
+                    20
+                  ],
+                  "color": "#5f6f8f"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

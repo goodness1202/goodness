@@ -1,0 +1,125 @@
+{
+  "name": "particles-playground",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "background": "#0d1120"
+  },
+  "main_scene": "main",
+  "assets": {
+    "scripts": {},
+    "images": {}
+  },
+  "scenes": {
+    "main": {
+      "root": {
+        "type": "Node2D",
+        "name": "Main",
+        "children": [
+          {
+            "type": "Node2D",
+            "name": "FX",
+            "script": "\n{\n  extends: 'Node2D',\n  presets: {\n    fire:      { direction: -90, spread: 30, speed_min: 60, speed_max: 180, gravity: [0, -80], colors: ['#ff5a5f', '#ff9f43', '#ffd257'], lifetime: 1.0, scale_min: 0.8, scale_max: 2.0 },\n    rain:      { direction: 90, spread: 8, speed_min: 300, speed_max: 420, gravity: [0, 200], colors: ['#58a6ff', '#66e0d5'], lifetime: 1.4, scale_min: 0.2, scale_max: 0.5 },\n    confetti:  { direction: -90, spread: 360, speed_min: 100, speed_max: 400, gravity: [0, 400], colors: ['#ff5a5f', '#ffd257', '#59d98c', '#58a6ff', '#ff8fd4'], lifetime: 1.8, scale_min: 0.4, scale_max: 1.0 },\n    fountain:  { direction: -90, spread: 50, speed_min: 250, speed_max: 450, gravity: [0, 500], colors: ['#66e0d5', '#7ef0b0', '#58a6ff'], lifetime: 1.2, scale_min: 0.4, scale_max: 1.0 },\n    stars:     { direction: 0, spread: 360, speed_min: 20, speed_max: 90, gravity: [0, 0], colors: ['#ffffff', '#ffe98a', '#b18cff'], lifetime: 2.2, scale_min: 0.3, scale_max: 0.9 },\n  },\n  current: 'fire',\n\n  _ready() {\n    this.hud = this.get_node('../HUD');\n    const names = Object.keys(this.presets);\n    names.forEach((name, i) => {\n      const b = this.hud.get_node('Btn' + i);\n      b.text = name;\n      b.connect('pressed', () => this._pick(name, b));\n    });\n    this._pick('fire', this.hud.get_node('Btn0'));\n    /* spinning showcase sprites */\n    for (let i = 0; i < 6; i++) {\n      const s = new Goodness.Sprite();\n      s.texture_src = choose(['goodness://star', 'goodness://gem', 'goodness://coin', 'goodness://heart']);\n      s._angle = (i / 6) * Math.PI * 2;\n      s._r = 190 + randf(60);\n      this.add_child(s);\n      this._orbiters = this._orbiters || [];\n      this._orbiters.push(s);\n    }\n  },\n\n  _pick(name, btn) {\n    this.current = name;\n    const p = this.presets[name];\n    const label = this.hud.get_node('Preset');\n    label.text = 'preset: ' + name + ' — click anywhere to burst!';\n    for (let i = 0; i < 5; i++) this.hud.get_node('Btn' + i).bg_color = new Goodness.Color(0.16, 0.2, 0.31);\n    if (btn) btn.bg_color = new Goodness.Color(0.12, 0.35, 0.55);\n  },\n\n  _input(ev) {\n    if (ev.type === 'mouse' && ev.pressed) {\n      const p = new Goodness.Particles2D();\n      const pre = this.presets[this.current];\n      for (const k of ['direction', 'spread', 'speed_min', 'speed_max', 'gravity', 'colors', 'lifetime', 'scale_min', 'scale_max']) {\n        p[k] = Array.isArray(pre[k]) ? pre[k].slice() : pre[k];\n      }\n      p.emitting = false;\n      p.amount = 0;\n      p.global_position = ev.position;\n      this.add_child(p);\n      p.burst(40);\n      SFX.play({ wave: 'triangle', freq: 300 + randf(300), freq_end: 900, dur: 0.12, vol: 0.25 });\n      /* auto-clean after the show */\n      this.get_tree().create_timer(3, () => p.queue_free());\n    }\n  },\n\n  _process(delta) {\n    const t = OS.ticks_msec / 1000;\n    for (const s of (this._orbiters || [])) {\n      const a = s._angle + t * 0.6;\n      s.position = new Vector2(640 + Math.cos(a) * s._r, 330 + Math.sin(a) * s._r * 0.55);\n      s.rotation += delta * 2;\n    }\n  }\n}"
+          },
+          {
+            "type": "CanvasLayer",
+            "name": "HUD",
+            "children": [
+              {
+                "type": "Label",
+                "name": "Preset",
+                "props": {
+                  "position": [
+                    140,
+                    40
+                  ],
+                  "text": "preset: fire",
+                  "font_size": 26,
+                  "size": [
+                    800,
+                    32
+                  ]
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Btn0",
+                "props": {
+                  "position": [
+                    140,
+                    640
+                  ],
+                  "size": [
+                    160,
+                    48
+                  ],
+                  "text": "fire"
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Btn1",
+                "props": {
+                  "position": [
+                    320,
+                    640
+                  ],
+                  "size": [
+                    160,
+                    48
+                  ],
+                  "text": "rain"
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Btn2",
+                "props": {
+                  "position": [
+                    500,
+                    640
+                  ],
+                  "size": [
+                    160,
+                    48
+                  ],
+                  "text": "confetti"
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Btn3",
+                "props": {
+                  "position": [
+                    680,
+                    640
+                  ],
+                  "size": [
+                    160,
+                    48
+                  ],
+                  "text": "fountain"
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Btn4",
+                "props": {
+                  "position": [
+                    860,
+                    640
+                  ],
+                  "size": [
+                    160,
+                    48
+                  ],
+                  "text": "stars"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
