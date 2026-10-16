@@ -1,0 +1,29 @@
+{
+  "name": "goodness-engine",
+  "version": "0.1.0",
+  "description": "Goodness Engine — a free, open-source 2D game engine for the browser. Complex inside, kind outside.",
+  "type": "commonjs",
+  "scripts": {
+    "serve": "python3 -m http.server 8080",
+    "test": "node tests/engine.test.mjs && node tests/examples.test.mjs && node tests/editor.test.mjs && node tests/site.test.mjs",
+    "build": "bash tools/build.sh && node examples/build.mjs && node tools/gen_api_docs.mjs",
+    "build:bundle": "bash tools/build.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goodness1202/goodness.git"
+  },
+  "keywords": [
+    "game-engine",
+    "game-development",
+    "2d",
+    "browser",
+    "godot",
+    "javascript"
+  ],
+  "author": "goodness1202",
+  "license": "MIT",
+  "devDependencies": {
+    "jsdom": "^27.4.0"
+  }
+}

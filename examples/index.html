@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Goodness Engine — Example Games</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #0b0e17; color: #d7e1f5; font: 15px/1.6 "Segoe UI", Inter, system-ui, sans-serif; margin: 0; padding: 40px 20px; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 28px; } h1 span { color: #4fd38c; }
+  p.lead { color: #8a97b4; max-width: 640px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 18px; margin-top: 28px; }
+  .card { background: #131826; border: 1px solid #26304a; border-radius: 14px; padding: 20px; }
+  .card:hover { border-color: #4fd38c; }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .card .tag { color: #8a97b4; font-size: 13px; }
+  .card .api { display: inline-block; background: #1d2c4a; color: #9cc4ff; border-radius: 20px; padding: 1px 10px; font-size: 11px; margin: 8px 4px 0 0; }
+  .row { display: flex; gap: 10px; margin-top: 14px; }
+  a.btn { flex: 1; text-align: center; background: #1a2133; border: 1px solid #2c3752; color: #d7e1f5; border-radius: 8px; padding: 8px 10px; text-decoration: none; font-size: 13px; }
+  a.btn:hover { background: #222b42; }
+  a.btn.play { border-color: #4fd38c; color: #9ffccc; }
+  nav { margin-bottom: 26px; } nav a { color: #6ea8ff; text-decoration: none; margin-right: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a href="../index.html">← Home</a>
+    <a href="../editor.html">Editor</a>
+    <a href="../docs/index.html">Tutorials</a>
+  </nav>
+  <h1>🎮 <span>Example games</span></h1>
+  <p class="lead">Six complete games — every one is a readable lesson. Open them in the
+  player, or pull them into the editor (File → Import Project) to take them apart.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>👋 Hello Ball</h3>
+      <div class="tag">2 minutes · sprites, scripts, particles</div>
+      <div class="row">
+        <a class="btn play" href="../player.html?project=examples/hello/project.json">▶ Play</a>
+        <a class="btn" href="../editor.html?import=examples/hello/project.json">Edit in editor</a>
+      </div>
+    </div>
+    <div class="card">
+      <h3>🪙 Coin Rush</h3>
+      <div class="tag">platformer · tilemaps, character body, camera, save</div>
+      <div class="row">
+        <a class="btn play" href="../player.html?project=examples/coin-rush/project.json">▶ Play</a>
+        <a class="btn" href="../editor.html?import=examples/coin-rush/project.json">Edit in editor</a>
+      </div>
+    </div>
+    <div class="card">
+      <h3>🚀 Nova Strike</h3>
+      <div class="tag">arcade shooter · waves, lasers, screen shake, music</div>
+      <div class="row">
+        <a class="btn play" href="../player.html?project=examples/nova-strike/project.json">▶ Play</a>
+        <a class="btn" href="../editor.html?import=examples/nova-strike/project.json">Edit in editor</a>
+      </div>
+    </div>
+    <div class="card">
+      <h3>❓ Trivia Quest</h3>
+      <div class="tag">quiz game · UI, timers, offline fallback</div>
+      <span class="api">Open Trivia DB</span><span class="api">free API</span>
+      <div class="row">
+        <a class="btn play" href="../player.html?project=examples/trivia-quest/project.json">▶ Play</a>
+        <a class="btn" href="../editor.html?import=examples/trivia-quest/project.json">Edit in editor</a>
+      </div>
+    </div>
+    <div class="card">
+      <h3>⚔️ Creature Clash</h3>
+      <div class="tag">turn-based battler · sprites &amp; stats from live data</div>
+      <span class="api">PokéAPI</span><span class="api">free API</span><span class="api">type effectiveness</span>
+      <div class="row">
+        <a class="btn play" href="../player.html?project=examples/creature-clash/project.json">▶ Play</a>
+        <a class="btn" href="../editor.html?import=examples/creature-clash/project.json">Edit in editor</a>
+      </div>
+    </div>
+    <div class="card">
+      <h3>✨ Particles Playground</h3>
+      <div class="tag">effects lab · particles, tweens, synth sound</div>
+      <div class="row">
+        <a class="btn play" href="../player.html?project=examples/particles-playground/project.json">▶ Play</a>
+        <a class="btn" href="../editor.html?import=examples/particles-playground/project.json">Edit in editor</a>
+      </div>
+    </div>
+  </div>
+
+  <p class="lead" style="margin-top:26px">“Edit in editor” loads the full project — scenes and
+  scripts together — straight into the <b>Goodness editor</b>. You can also use
+  <b>File → Load Example…</b> from inside the editor.</p>
+</div>
+</body>
+</html>

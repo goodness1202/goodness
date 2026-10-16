@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Goodness Engine — Documentation</title>
+<style>
+  :root {
+    --bg0: #0b0e17; --bg1: #131826; --bg2: #1a2133; --bg3: #222b42;
+    --line: #26304a; --text: #d7e1f5; --dim: #8a97b4; --faint: #5c6a88;
+    --accent: #4fd38c; --blue: #58a6ff; --gold: #ffd257;
+    color-scheme: dark;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { background: var(--bg0); color: var(--text); font: 15px/1.7 "Segoe UI", Inter, system-ui, sans-serif; display: flex; flex-direction: column; }
+  header {
+    height: 50px; flex: none; display: flex; align-items: center; gap: 16px;
+    padding: 0 20px; background: var(--bg1); border-bottom: 1px solid var(--line);
+  }
+  header .logo { font-weight: 800; color: var(--accent); font-size: 15px; }
+  header .crumb { color: var(--dim); font-size: 13px; }
+  header .spacer { flex: 1; }
+  header a { color: var(--blue); font-size: 13px; text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+  header button {
+    background: var(--bg2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 7px; padding: 5px 13px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  header button:hover { background: var(--bg3); }
+
+  #layout { flex: 1; display: flex; min-height: 0; }
+  nav#chapters {
+    width: 290px; flex: none; overflow-y: auto; padding: 16px 10px;
+    border-right: 1px solid var(--line); background: var(--bg1);
+  }
+  nav#chapters .chapter {
+    display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border-radius: 8px;
+    color: var(--dim); cursor: pointer; font-size: 13.5px;
+  }
+  nav#chapters .chapter:hover { background: var(--bg2); color: var(--text); }
+  nav#chapters .chapter.active { background: rgba(79, 211, 140, 0.13); color: #bdf5d8; }
+  nav#chapters .chapter .num { font-family: ui-monospace, monospace; color: var(--accent); font-size: 12px; }
+  nav#chapters .group { color: var(--faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.2px; margin: 16px 12px 4px; }
+
+  main { flex: 1; overflow-y: auto; }
+  #paper { max-width: 860px; margin: 0 auto; padding: 40px 48px 120px; }
+
+  /* ---------- rendered markdown ---------- */
+  .md h1 { font-size: 34px; line-height: 1.15; margin: 6px 0 18px; letter-spacing: -0.5px; }
+  .md h1::after { content: ""; display: block; width: 64px; height: 3px; background: var(--accent); border-radius: 2px; margin-top: 14px; }
+  .md h2 { font-size: 24px; margin: 40px 0 10px; }
+  .md h3 { font-size: 18px; margin: 28px 0 8px; color: #eaf1ff; }
+  .md p { margin: 12px 0; color: #c3cfe6; }
+  .md li { margin: 5px 0 5px 24px; color: #c3cfe6; }
+  .md ul, .md ol { margin: 10px 0; }
+  .md code {
+    background: #0c101b; border: 1px solid #202a44; color: #9ffccc;
+    padding: 1px 6px; border-radius: 5px; font-size: 0.86em;
+    font-family: ui-monospace, Consolas, "Cascadia Code", monospace;
+  }
+  .md pre {
+    background: #0c101b; border: 1px solid #222b42; border-radius: 12px;
+    padding: 16px 18px; overflow-x: auto; margin: 16px 0; line-height: 1.6;
+  }
+  .md pre code { background: none; border: 0; padding: 0; color: #c7d6f5; font-size: 13px; }
+  .md table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+  .md th, .md td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; }
+  .md th { background: var(--bg2); color: #eaf1ff; }
+  .md tr:nth-child(even) td { background: rgba(19, 24, 38, 0.5); }
+  .md blockquote { border-left: 3px solid var(--accent); padding: 4px 16px; margin: 14px 0; color: var(--dim); background: rgba(79,211,140,0.05); border-radius: 0 8px 8px 0; }
+  .md a { color: var(--blue); }
+  .md hr { border: 0; border-top: 1px solid var(--line); margin: 30px 0; }
+  .md strong { color: #eaf1ff; }
+  .md .big-link-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 22px 0; }
+  .md .big-link-row a {
+    display: inline-block; padding: 10px 20px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--bg2); color: var(--text); text-decoration: none;
+  }
+  .md .big-link-row a:hover { border-color: var(--accent); }
+
+  #pager { display: flex; gap: 12px; margin-top: 48px; }
+  #pager a {
+    flex: 1; padding: 14px 18px; border: 1px solid var(--line); border-radius: 12px;
+    background: var(--bg1); color: var(--dim); text-decoration: none; font-size: 14px;
+  }
+  #pager a:hover { border-color: var(--accent); color: var(--text); }
+  #pager a.next { text-align: right; }
+  #pager a b { display: block; color: var(--text); font-size: 15px; }
+
+  #loading { color: var(--faint); padding: 60px; text-align: center; }
+  #mobile-nav { display: none; }
+
+  @media (max-width: 860px) {
+    nav#chapters { position: fixed; z-index: 40; top: 50px; bottom: 0; left: 0; transform: translateX(-100%); transition: transform 0.18s ease; box-shadow: 12px 0 40px rgba(0,0,0,0.5); }
+    nav#chapters.open { transform: none; }
+    #mobile-nav { display: block; }
+    #paper { padding: 26px 20px 110px; }
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <button id="mobile-nav" onclick="document.getElementById('chapters').classList.toggle('open')">☰</button>
+  <span class="logo">⚡ Goodness</span>
+  <span class="crumb" id="crumb">Documentation</span>
+  <span class="spacer"></span>
+  <a href="../index.html">Home</a>
+  <a href="../editor.html">Editor</a>
+  <a href="../examples/index.html">Examples</a>
+</header>
+
+<div id="layout">
+  <nav id="chapters"></nav>
+  <main>
+    <div id="paper">
+      <div id="loading">Loading the manual…</div>
+      <article class="md" id="content"></article>
+      <div id="pager"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ==========================================================================
+   Goodness Engine documentation reader.
+   Chapters are the markdown files in this folder — fetched and rendered by
+   a tiny purpose-built markdown renderer (no dependencies, like the engine).
+   ========================================================================== */
+(() => {
+  'use strict';
+
+  const CHAPTERS = [
+    { num: '01', file: '01-getting-started.md',   title: 'Getting Started',        group: 'Learn' },
+    { num: '02', file: '02-editor-guide.md',      title: 'The Editor',             group: 'Learn' },
+    { num: '03', file: '03-nodes-and-scenes.md',  title: 'Nodes & Scenes',         group: 'Learn' },
+    { num: '04', file: '04-scripting.md',         title: 'Scripting',              group: 'Learn' },
+    { num: '05', file: '05-physics.md',           title: 'Physics',                group: 'Build' },
+    { num: '06', file: '06-input-sound-ui.md',    title: 'Input, Sound & UI',      group: 'Build' },
+    { num: '07', file: '07-tilemaps.md',          title: 'TileMaps',               group: 'Build' },
+    { num: '08', file: '08-free-apis.md',         title: 'Free APIs',              group: 'Build' },
+    { num: '09', file: '09-saving-and-publishing.md', title: 'Saving & Publishing', group: 'Ship' },
+    { num: '10', file: '10-architecture.md',      title: 'Architecture',           group: 'Ship' },
+    { num: 'API', file: 'api-reference.md',       title: 'API Reference',          group: 'Ship' },
+  ];
+
+  const $ = (s) => document.querySelector(s);
+  const content = $('#content');
+  const crumb = $('#crumb');
+  const pager = $('#pager');
+  const loading = $('#loading');
+
+  /* ---------------- sidebar ---------------- */
+  function renderSidebar(activeFile) {
+    const nav = $('#chapters');
+    nav.innerHTML = '';
+    let lastGroup = null;
+    for (const ch of CHAPTERS) {
+      if (ch.group !== lastGroup) {
+        const g = document.createElement('div');
+        g.className = 'group';
+        g.textContent = ch.group;
+        nav.appendChild(g);
+        lastGroup = ch.group;
+      }
+      const item = document.createElement('div');
+      item.className = 'chapter' + (ch.file === activeFile ? ' active' : '');
+      item.innerHTML = `<span class="num">${ch.num}</span><span>${ch.title}</span>`;
+      item.onclick = () => { location.hash = ch.file; nav.classList.remove('open'); };
+      nav.appendChild(item);
+    }
+  }
+
+  /* ---------------- mini markdown renderer ---------------- */
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  function inline(s) {
+    s = esc(s);
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    /* internal doc links + external */
+    s = s.replace(/\[([^\]]+)\]\(([^)]+\.md)\)/g, (m, text, href) => {
+      const target = href.split('/').pop();
+      return `<a href="#${target}">${text}</a>`;
+    });
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return s;
+  }
+
+  function renderMarkdown(src) {
+    const lines = src.split('\n');
+    const out = [];
+    let i = 0, inCode = false, codeBuf = [], listOpen = null, tableBuf = [], inTable = false;
+
+    const closeList = () => { if (listOpen) { out.push(`</${listOpen}>`); listOpen = null; } };
+    const closeTable = () => {
+      if (!inTable) return;
+      const rows = tableBuf.filter((r) => !/^\s*\|[\s:|-]+\|\s*$/.test(r));
+      const html = [];
+      rows.forEach((row, idx) => {
+        const cells = row.split('|').slice(1, -1).map((c) => c.trim());
+        const tag = idx === 0 ? 'th' : 'td';
+        html.push(`<tr>${cells.map((c) => `<${tag}>${inline(c)}</${tag}>`).join('')}</tr>`);
+      });
+      out.push(`<table>${html.join('')}</table>`);
+      tableBuf = []; inTable = false;
+    };
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      /* fenced code */
+      if (line.trim().startsWith('```')) {
+        if (inCode) {
+          out.push(`<pre><code>${esc(codeBuf.join('\n'))}</code></pre>`);
+          codeBuf = []; inCode = false;
+        } else {
+          closeList(); closeTable();
+          inCode = true;
+        }
+        i++; continue;
+      }
+      if (inCode) { codeBuf.push(line); i++; continue; }
+
+      /* tables */
+      if (line.trim().startsWith('|')) {
+        closeList();
+        inTable = true; tableBuf.push(line); i++; continue;
+      } else closeTable();
+
+      /* headings */
+      const h = line.match(/^(#{1,4})\s+(.*)$/);
+      if (h) {
+        closeList();
+        const level = h[1].length;
+        out.push(`<h${level}>${inline(h[2])}</h${level}>`);
+        i++; continue;
+      }
+
+      /* hr */
+      if (/^\s*---+\s*$/.test(line)) { closeList(); out.push('<hr>'); i++; continue; }
+
+      /* blockquote */
+      if (line.startsWith('> ')) {
+        closeList();
+        out.push(`<blockquote>${inline(line.slice(2))}</blockquote>`);
+        i++; continue;
+      }
+
+      /* lists */
+      const ul = line.match(/^\s*[-*]\s+(.*)$/);
+      const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+      if (ul || ol) {
+        const want = ul ? 'ul' : 'ol';
+        if (listOpen !== want) { closeList(); out.push(`<${want}>`); listOpen = want; }
+        out.push(`<li>${inline((ul || ol)[1])}</li>`);
+        i++; continue;
+      } else closeList();
+
+      /* blank */
+      if (line.trim() === '') { i++; continue; }
+
+      /* paragraph (merge consecutive lines) */
+      let para = [line];
+      i++;
+      while (i < lines.length && lines[i].trim() !== '' && !/^(#{1,4}\s|```|\||>\s|[-*]\s|\d+\.\s)/.test(lines[i])) {
+        para.push(lines[i]); i++;
+      }
+      out.push(`<p>${inline(para.join(' '))}</p>`);
+    }
+    closeList(); closeTable();
+    if (inCode) out.push(`<pre><code>${esc(codeBuf.join('\n'))}</code></pre>`);
+    return out.join('\n');
+  }
+
+  /* ---------------- chapter loading ---------------- */
+  async function loadChapter(file) {
+    const ch = CHAPTERS.find((c) => c.file === file) || CHAPTERS[0];
+    renderSidebar(ch.file);
+    try {
+      const res = await fetch(ch.file);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const md = await res.text();
+      content.innerHTML = renderMarkdown(md);
+      crumb.textContent = `${ch.num} · ${ch.title}`;
+      document.title = `Goodness Engine — ${ch.title}`;
+    } catch (e) {
+      content.innerHTML = `<h1>Could not load “${esc(ch.file)}”</h1><p>${esc(e.message)} — serve this folder over http (see the README).</p>`;
+    }
+    loading.style.display = 'none';
+
+    /* pager */
+    const idx = CHAPTERS.indexOf(ch);
+    pager.innerHTML = '';
+    if (idx > 0) {
+      const prev = CHAPTERS[idx - 1];
+      pager.innerHTML += `<a href="#${prev.file}">← Previous<b>${prev.num} · ${prev.title}</b></a>`;
+    }
+    pager.innerHTML += `<a class="next" href="../editor.html">Open the Editor →<b>practice while you read</b></a>`;
+    if (idx < CHAPTERS.length - 1) {
+      const next = CHAPTERS[idx + 1];
+      pager.innerHTML += `<a class="next" href="#${next.file}">Next →<b>${next.num} · ${next.title}</b></a>`;
+    }
+    document.querySelector('main').scrollTop = 0;
+    window.scrollTo(0, 0);
+  }
+
+  window.addEventListener('hashchange', () => loadChapter(location.hash.slice(1) || CHAPTERS[0].file));
+  loadChapter(location.hash.slice(1) || CHAPTERS[0].file);
+})();
+</script>
+</body>
+</html>

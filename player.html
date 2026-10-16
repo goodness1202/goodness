@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Goodness Engine — Player</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #0b0e17; overflow: hidden; font-family: "Segoe UI", Inter, system-ui, sans-serif; }
+  body { display: flex; align-items: center; justify-content: center; flex-direction: column; }
+  #stage { position: relative; box-shadow: 0 12px 60px rgba(0,0,0,0.6); border-radius: 8px; overflow: hidden; }
+  canvas { display: block; background: #10131f; }
+  #bar {
+    position: fixed; top: 0; left: 0; right: 0; height: 42px; display: flex; align-items: center;
+    gap: 14px; padding: 0 16px; background: rgba(13,17,28,0.92); border-bottom: 1px solid #232b40;
+    font-size: 13px; color: #9db0d0; z-index: 10;
+  }
+  #bar .logo { font-weight: 700; color: #7ef0b0; letter-spacing: 0.4px; }
+  #bar a { color: #6ea8ff; text-decoration: none; }
+  #bar a:hover { text-decoration: underline; }
+  #bar .spacer { flex: 1; }
+  #bar button {
+    background: #1d2436; border: 1px solid #2c3752; color: #cfe0ff; border-radius: 6px;
+    padding: 4px 12px; cursor: pointer; font-size: 12px;
+  }
+  #bar button:hover { background: #27334d; }
+  #msg { margin-top: 14px; color: #8291ad; font-size: 13px; }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <span class="logo">⚡ Goodness Player</span>
+    <span id="project-name">—</span>
+    <span class="spacer"></span>
+    <span id="fps"></span>
+    <button onclick="location.href='editor.html'">Open in Editor</button>
+    <button onclick="location.href='index.html'">Home</button>
+  </div>
+  <div id="stage"><canvas id="game" width="1280" height="720"></canvas></div>
+  <div id="msg"></div>
+
+  <script src="engine/loader.js"></script>
+  <script>
+  (async () => {
+    const canvas = document.getElementById('game');
+    const msg = document.getElementById('msg');
+    const nameEl = document.getElementById('project-name');
+    const fpsEl = document.getElementById('fps');
+
+    /* scale canvas to fit window (letterboxed, crisp) */
+    function fit() {
+      const availW = window.innerWidth - 24;
+      const availH = window.innerHeight - 90;
+      const scale = Math.min(availW / canvas.width, availH / canvas.height, 1.5);
+      canvas.style.width = (canvas.width * scale) + 'px';
+      canvas.style.height = (canvas.height * scale) + 'px';
+    }
+    window.addEventListener('resize', fit);
+    fit();
+
+    let project = null;
+    /* 1. ?project=examples/<name>/project.json */
+    const params = new URLSearchParams(location.search);
+    const src = params.get('project');
+    if (src) {
+      try { project = await GE.Assets.load_json(src); }
+      catch (e) { msg.textContent = 'Could not load project "' + src + '" — ' + e.message; }
+    }
+    /* 2. project handed over from the editor */
+    if (!project) {
+      try {
+        const raw = localStorage.getItem('goodness:runtime-project');
+        if (raw) project = JSON.parse(raw);
+      } catch (e) {}
+    }
+    /* 3. built-in demo */
+    if (!project) {
+      msg.textContent = 'No project given — running the built-in demo. Try player.html?project=examples/coin-rush/project.json';
+      project = {
+        name: 'demo',
+        settings: { width: 1280, height: 720, background: '#10131f' },
+        scenes: { main: { root: {
+          type: 'Node2D', name: 'Demo',
+          children: [
+            { type: 'Sprite', name: 'Ball', props: { position: [200, 200], texture: 'goodness://ball' },
+              script: `{
+                extends: 'Sprite',
+                vx: 340, vy: 240,
+                _process(delta) {
+                  this.position.x += this.vx * delta;
+                  this.position.y += this.vy * delta;
+                  if (this.position.x < 40 || this.position.x > 1240) this.vx *= -1;
+                  if (this.position.y < 40 || this.position.y > 680) this.vy *= -1;
+                  this.rotation += 120 * delta;
+                }
+              }` },
+            { type: 'CanvasLayer', name: 'HUD', children: [
+              { type: 'Label', name: 'Title', props: { position: [340, 330], text: 'Goodness Engine', font_size: 56, align: 'center', size: [600, 60] } },
+              { type: 'Label', name: 'Sub', props: { position: [340, 400], text: 'open editor.html to make your own game', font_size: 20, align: 'center', size: [600, 30], color: '#9db0d0' } },
+            ] },
+          ],
+        } } },
+        assets: { scripts: {}, images: {} },
+        main_scene: 'main',
+      };
+    }
+
+    nameEl.textContent = project.name || 'untitled';
+    const engine = await GE.api.boot_project(project, canvas);
+    GE.Input._register_canvas(canvas, engine);
+
+    /* fps readout */
+    setInterval(() => { fpsEl.textContent = GE.OS.fps + ' fps · ' + engine.tree._count_nodes() + ' nodes'; }, 500);
+  })();
+  </script>
+</body>
+</html>

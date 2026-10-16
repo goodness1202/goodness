@@ -1,0 +1,239 @@
+{
+  "name": "nova-strike",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "background": "#070a14"
+  },
+  "main_scene": "main",
+  "assets": {
+    "scripts": {},
+    "images": {}
+  },
+  "scenes": {
+    "main": {
+      "root": {
+        "type": "Node2D",
+        "name": "Main",
+        "children": [
+          {
+            "type": "Node2D",
+            "name": "Game",
+            "script": "\n{\n  extends: 'Node2D',\n  score: 0,\n  wave: 0,\n  lives: 3,\n  state: 'title',   // title | playing | over\n\n  _ready() {\n    this.hud = this.get_node('../HUD');\n    this.player = this.get_node('Player');\n    this.player.visible = false;\n    this.spawner = this.get_node('Spawner');\n    this.cam = this.get_node('Camera');\n    this.start_btn = this.hud.get_node('Start');\n    this.start_btn.connect('pressed', this, '_start');\n    this.best = Save.get('highscore', 0);\n    this._refresh();\n  },\n\n  _refresh() {\n    const h = this.hud;\n    h.get_node('Score').text = 'Score ' + this.score + '   Wave ' + this.wave + '   Best ' + Math.max(this.best, this.score);\n    h.get_node('Health').value = this.lives * 33.4;\n    h.get_node('Title').visible = this.state !== 'playing';\n    this.start_btn.visible = this.state !== 'playing';\n    h.get_node('Over').visible = this.state === 'over';\n  },\n\n  _start() {\n    this.score = 0; this.wave = 0; this.lives = 3;\n    this.state = 'playing';\n    this.player._reset();\n    this.player.visible = true;\n    for (const e of this.spawner.get_children()) e.queue_free();\n    this.spawner._wave_timer = 0;\n    this.spawner.enabled = true;\n    this._refresh();\n    SFX.powerup();\n    Music.play([\n      { n: 'E4', d: 0.5 }, { n: 'E4', d: 0.25 }, { n: 'G4', d: 0.25 }, { n: 'A4', d: 0.5 },\n      { n: 'G4', d: 0.5 }, { n: 'E4', d: 0.5 }, { n: 'D4', d: 0.5 }, { n: 'E4', d: 1 },\n    ], { tempo: 140, volume: 0.10 });\n  },\n\n  add_score(n) {\n    this.score += n;\n    if (this.score > this.best) { this.best = this.score; Save.set('highscore', this.score); }\n    this._refresh();\n  },\n\n  player_hit() {\n    if (this.state !== 'playing') return;\n    this.lives--;\n    this.cam.shake(0.4, 16);\n    SFX.explosion();\n    this.player._explode();\n    this._refresh();\n    if (this.lives <= 0) {\n      this.state = 'over';\n      this.spawner.enabled = false;\n      for (const e of this.spawner.get_children()) e.queue_free();\n      Music.stop();\n      SFX.lose();\n      this._refresh();\n    } else {\n      this.player._reset();\n    }\n  }\n}",
+            "children": [
+              {
+                "type": "Area2D",
+                "name": "Player",
+                "props": {
+                  "position": [
+                    640,
+                    620
+                  ],
+                  "shape": {
+                    "type": "circle",
+                    "radius": 22
+                  }
+                },
+                "script": "\n{\n  extends: 'Area2D',\n  speed: 420,\n  fire_rate: 0.16,\n  _cool: 0,\n  _invuln: 0,\n\n  _ready() {\n    this.sprite = this.get_node('Sprite');\n    this.thruster = this.get_node('Thruster');\n    this.game = this.get_node('..');\n    this.bullets = this.get_node('../Bullets');\n  },\n\n  _reset() {\n    this.position = new Vector2(640, 620);\n    this._invuln = 2;\n  },\n\n  _explode() {\n    this.get_node('Boom').burst(40);\n    this._invuln = 1.5;\n  },\n\n  _process(delta) {\n    if (this.game.state !== 'playing') { this.visible = false; return; }\n    this.visible = true;\n    if (this._invuln > 0) {\n      this._invuln -= delta;\n      this.sprite.visible = Math.floor(OS.ticks_msec / 80) % 2 === 0;\n    } else this.sprite.visible = true;\n\n    /* fly */\n    const v = Input.get_vector('ui_left', 'ui_right', 'ui_up', 'ui_down');\n    this.position = this.position.add(v.mul(this.speed * delta));\n    this.position.x = clamp(this.position.x, 30, 1250);\n    this.position.y = clamp(this.position.y, 80, 690);\n    this.sprite.rotation = v.x * 0.22;\n\n    /* fire */\n    this._cool -= delta;\n    if ((Input.is_action_pressed('fire') || Input.is_action_pressed('ui_accept')) && this._cool <= 0) {\n      this._cool = this.fire_rate;\n      this.bullets._spawn(this.position.add(new Vector2(0, -30)), false);\n      SFX.laser();\n    }\n  }\n}",
+                "children": [
+                  {
+                    "type": "Sprite",
+                    "name": "Sprite",
+                    "props": {
+                      "texture": "goodness://ship",
+                      "scale": [
+                        1.2,
+                        1.2
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Particles2D",
+                    "name": "Thruster",
+                    "props": {
+                      "position": [
+                        0,
+                        26
+                      ],
+                      "amount": 14,
+                      "lifetime": 0.4,
+                      "direction": 90,
+                      "spread": 24,
+                      "speed_min": 60,
+                      "speed_max": 140,
+                      "gravity": [
+                        0,
+                        -40
+                      ],
+                      "scale_min": 0.4,
+                      "scale_max": 0.9,
+                      "colors": [
+                        "#66e0d5",
+                        "#58a6ff"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "Particles2D",
+                    "name": "Boom",
+                    "props": {
+                      "emitting": false,
+                      "amount": 0,
+                      "lifetime": 0.9,
+                      "spread": 360,
+                      "direction": 0,
+                      "speed_min": 80,
+                      "speed_max": 340,
+                      "gravity": [
+                        0,
+                        0
+                      ],
+                      "colors": [
+                        "#ffd257",
+                        "#ff9f43",
+                        "#ff5a5f"
+                      ],
+                      "scale_min": 0.6,
+                      "scale_max": 1.6
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Node2D",
+                "name": "Bullets",
+                "script": "\n{\n  extends: 'Node2D',\n  _ready() { this.game = this.get_node('..'); this.spawner = this.get_node('../Spawner'); },\n  _spawn(pos, enemy_bullet) {\n    const b = new Goodness.Sprite();\n    b.name = enemy_bullet ? 'EnemyBullet' : 'Bullet';\n    b.texture_src = enemy_bullet ? 'goodness://ball' : 'goodness://laser';\n    if (enemy_bullet) { b.scale = new Vector2(0.6, 0.6); b.modulate = new Goodness.Color(1, 0.4, 0.3); }\n    b.position = pos;\n    b._vy = enemy_bullet ? 300 : -720;\n    this.add_child(b);\n  },\n  _process(delta) {\n    for (const b of this.get_children()) {\n      b.position.y += b._vy * delta;\n      const gone = b.position.y < -30 || b.position.y > 750;\n      if (gone) { b.queue_free(); continue; }\n      if (b.name === 'Bullet') {\n        for (const e of this.spawner.get_children()) {\n          if (b.position.distance_to(e.position) < 30) {\n            b.queue_free();\n            e._hit();\n            break;\n          }\n        }\n      } else {\n        const player = this.get_node('../Player');\n        if (this.game.state === 'playing' && b.position.distance_to(player.position) < 28 && player._invuln <= 0) {\n          b.queue_free();\n          this.game.player_hit();\n        }\n      }\n    }\n  }\n}"
+              },
+              {
+                "type": "Node2D",
+                "name": "Spawner",
+                "script": "\n{\n  extends: 'Node2D',\n  enabled: false,\n  _wave_timer: 1.5,\n  _t: 0,\n\n  _ready() {\n    this.game = this.get_node('..');\n    this.bullets = this.get_node('../Bullets');\n  },\n\n  _process(delta) {\n    if (!this.enabled) return;\n    this._t += delta;\n    this._wave_timer -= delta;\n    if (this._wave_timer <= 0) {\n      this.game.wave++;\n      this.game._refresh();\n      this._wave_timer = Math.max(3.5, 9 - this.game.wave * 0.6);\n      const count = Math.min(10, 3 + this.game.wave);\n      for (let i = 0; i < count; i++) this._spawn_enemy(i, count);\n      SFX.spawn();\n    }\n    /* enemy behaviour + shooting */\n    for (const e of this.get_children()) {\n      e.position.y += e._vy * delta;\n      e.position.x = e._base_x + Math.sin(this._t * e._wobble_speed + e._phase) * e._wobble;\n      if (e._shoot_timer !== undefined) {\n        e._shoot_timer -= delta;\n        if (e._shoot_timer <= 0 && e.position.y > 0 && e.position.y < 500) {\n          e._shoot_timer = randf_range(1.5, 4);\n          this.bullets._spawn(e.position.add(new Vector2(0, 26)), true);\n        }\n      }\n      if (e.position.y > 780) e.queue_free();\n    }\n  },\n\n  _spawn_enemy(i, count) {\n    const e = new Goodness.Sprite();\n    e.name = 'Enemy';\n    e.texture_src = choose(['goodness://alien', 'goodness://ghost', 'goodness://robot']);\n    e._base_x = 120 + (i + 0.5) * (1040 / count);\n    e.position = new Vector2(e._base_x, -40 - randf(60));\n    e._vy = randf_range(46, 84) + this.game.wave * 4;\n    e._wobble = randf_range(24, 70);\n    e._wobble_speed = randf_range(1.2, 2.6);\n    e._phase = randf(6.28);\n    e._hp = 1 + Math.floor(this.game.wave / 4);\n    e._shoot_timer = randf_range(0.8, 3.5);\n    e._hit = () => {\n      e._hp--;\n      if (e._hp > 0) {\n        e.modulate = new Goodness.Color(1, 0.5, 0.5);\n        SFX.hit();\n        const t = e.create_tween();\n        t.tween_property(e, 'modulate', new Goodness.Color(1, 1, 1), 0.25);\n        return;\n      }\n      /* boom! */\n      const boom = new Goodness.Particles2D();\n      boom.emitting = false; boom.amount = 0; boom.one_shot = true;\n      boom.position = e.position.copy();\n      boom.lifetime = 0.7; boom.spread = 360; boom.direction = 0;\n      boom.speed_min = 80; boom.speed_max = 320;\n      boom.colors = ['#ffd257', '#ff9f43', '#ff5a5f'];\n      this.get_parent().add_child(boom);\n      boom.burst(30);\n      SFX.explosion();\n      this.game.add_score(10);\n      this.game.cam.shake(0.08, 3);\n      e.queue_free();\n    };\n    this.add_child(e);\n  }\n}"
+              },
+              {
+                "type": "Camera2D",
+                "name": "Camera",
+                "props": {
+                  "current": true,
+                  "position": [
+                    640,
+                    360
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "type": "CanvasLayer",
+            "name": "HUD",
+            "children": [
+              {
+                "type": "Label",
+                "name": "Title",
+                "props": {
+                  "position": [
+                    340,
+                    200
+                  ],
+                  "text": "NOVA STRIKE",
+                  "font_size": 84,
+                  "align": "center",
+                  "size": [
+                    600,
+                    90
+                  ],
+                  "outline": 4
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Sub",
+                "props": {
+                  "position": [
+                    340,
+                    300
+                  ],
+                  "text": "WASD / arrows to fly · X or Space to shoot",
+                  "font_size": 22,
+                  "align": "center",
+                  "size": [
+                    600,
+                    30
+                  ],
+                  "color": "#9db0d0"
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Over",
+                "props": {
+                  "position": [
+                    340,
+                    260
+                  ],
+                  "text": "GAME OVER",
+                  "font_size": 64,
+                  "align": "center",
+                  "size": [
+                    600,
+                    70
+                  ],
+                  "color": "#ff6b6b",
+                  "outline": 4,
+                  "visible": false
+                }
+              },
+              {
+                "type": "Button",
+                "name": "Start",
+                "props": {
+                  "position": [
+                    560,
+                    380
+                  ],
+                  "size": [
+                    160,
+                    54
+                  ],
+                  "text": "Launch!",
+                  "font_size": 24
+                }
+              },
+              {
+                "type": "Label",
+                "name": "Score",
+                "props": {
+                  "position": [
+                    24,
+                    20
+                  ],
+                  "text": "Score 0",
+                  "font_size": 24,
+                  "size": [
+                    700,
+                    30
+                  ]
+                }
+              },
+              {
+                "type": "ProgressBar",
+                "name": "Health",
+                "props": {
+                  "position": [
+                    24,
+                    60
+                  ],
+                  "size": [
+                    240,
+                    18
+                  ],
+                  "value": 100,
+                  "show_text": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

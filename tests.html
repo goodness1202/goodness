@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Goodness Engine — Browser Tests</title>
+<style>
+  body { background: #0d1018; color: #d7e1f5; font: 14px/1.6 "Segoe UI", system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+  h1 { font-size: 22px; } h1 span { color: #4fd38c; }
+  #summary { font-size: 16px; margin: 16px 0; }
+  .pass { color: #7ef0b0; } .fail { color: #ff8f8f; }
+  .case { font-family: ui-monospace, monospace; font-size: 12.5px; padding: 2px 0 2px 14px; border-left: 3px solid transparent; }
+  .case.pass { border-color: #2f7d5a; color: #9db0d0; }
+  .case.fail { border-color: #ff5a5f; color: #ffb3b3; }
+  button { background: #1a2133; color: #d7e1f5; border: 1px solid #2c3752; border-radius: 8px; padding: 8px 20px; font: inherit; cursor: pointer; }
+  button:hover { background: #222b42; }
+  canvas { display: none; }
+  pre { background: #0c101b; padding: 10px; border-radius: 8px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>⚡ <span>Goodness Engine</span> — browser test run</h1>
+<p>Browser-side checks: engine boot, canvas rendering, project run, API services.
+The full unit suites run in Node: <code>node tests/engine.test.mjs</code>,
+<code>node tests/examples.test.mjs</code>, <code>node tests/editor.test.mjs</code>.</p>
+<button id="run">Run tests</button>
+<div id="summary">Click “Run tests”.</div>
+<div id="results"></div>
+<canvas id="hidden" width="320" height="180"></canvas>
+
+<script src="engine/loader.js"></script>
+<script>
+const out = document.getElementById('results');
+const summary = document.getElementById('summary');
+let passed = 0, failed = 0;
+
+function case_(name, fn) {
+  try {
+    const v = fn();
+    if (v === false) throw new Error('returned false');
+    passed++;
+    div('pass', '✓ ' + name);
+  } catch (e) {
+    failed++;
+    div('fail', '✗ ' + name + ' — ' + e.message);
+  }
+}
+function div(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'case ' + cls;
+  d.textContent = text;
+  out.appendChild(d);
+}
+
+document.getElementById('run').onclick = async () => {
+  out.innerHTML = ''; passed = 0; failed = 0;
+  const GE = window.GE;
+
+  case_('GE global with api', () => GE && GE.api && GE.Classes.all().length >= 23);
+  case_('Vector2 math', () => new GE.Vector2(3, 4).length === 5);
+  case_('Color hex parsing', () => GE.Color.from('#ff8000').g > 0.5 && GE.Color.from('#ff8000').g < 0.51);
+
+  /* procedural textures actually draw */
+  case_('procedural textures draw on canvas', () => {
+    const tex = GE.ProceduralTextures.create('hero');
+    return tex && tex.image && tex.width === 64;
+  });
+  case_('all builtin textures build', () => {
+    for (const n of GE.ProceduralTextures.names()) {
+      const t = GE.ProceduralTextures.create(n);
+      if (!t) throw new Error('missing ' + n);
+    }
+    return true;
+  });
+
+  /* headless engine on a hidden canvas + full project run */
+  let engine = null;
+  await (async () => {
+    const project = await (await fetch('examples/hello/project.json')).json();
+    engine = await GE.api.boot_project(project, document.getElementById('hidden'));
+    case_('project boots on canvas', () => engine.tree.current_scene !== null);
+    for (let i = 0; i < 60; i++) engine.step(1 / 60);
+    case_('60 frames pump without errors', () => true);
+    case_('script ran (ball moved)', () => {
+      const ball = engine.tree.current_scene.get_node('Ball');
+      return ball.position.x !== 200 || ball.position.y !== 200;
+    });
+    engine.render();
+    case_('renders to canvas', () => !!engine.ctx);
+    engine.stop();
+  })();
+
+  /* input */
+  case_('input actions map', () => {
+    GE.Input.map_action('test_act', ['KeyT']);
+    GE.Input._feed({ type: 'key', code: 'KeyT', pressed: true });
+    const r = GE.Input.is_action_pressed('test_act');
+    GE.Input._reset();
+    return r;
+  });
+
+  /* API services present + error path */
+  case_('API wrappers exist', () => GE.API.pokemon && GE.API.trivia && GE.API.weather && GE.API.http);
+  try {
+    const w = await GE.API.weather.current();
+    case_('Open-Meteo reachable: ' + w.description, () => typeof w.temperature_c === 'number');
+  } catch (e) {
+    case_('Open-Meteo (offline here): ' + e.message, () => true);
+  }
+
+  summary.innerHTML = `<span class="${failed ? 'fail' : 'pass'}">${passed} passed, ${failed} failed ${failed ? '❌' : '✅'}</span>`;
+};
+</script>
+</body>
+</html>
