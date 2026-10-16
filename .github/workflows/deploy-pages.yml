@@ -9,6 +9,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  issues: write
 
 concurrency:
   group: pages
@@ -23,9 +24,52 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pages must exist (build_type "workflow") before deploy-pages can run.
+      # Try to enable it with the workflow's own token; capture every response.
+      - name: Ensure Pages is enabled (workflow build type)
+        id: ensure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO="$GITHUB_REPOSITORY"
+          {
+            echo 'log<<DIAG_EOF'
+            echo '--- current pages site:'
+            gh api "repos/$REPO/pages" 2>&1 || true
+            echo '--- create (build_type=workflow):'
+            gh api -X POST "repos/$REPO/pages" -f build_type=workflow 2>&1 || true
+            echo '--- after:'
+            gh api "repos/$REPO/pages" 2>&1 || true
+            echo 'DIAG_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          bt=$(gh api "repos/$REPO/pages" --jq .build_type 2>/dev/null || echo none)
+          echo "build_type=$bt" >> "$GITHUB_OUTPUT"
+
+      # If enablement failed, file an issue with the raw API responses so it
+      # can be diagnosed (or enabled manually) without log access.
+      - name: Report enablement problem
+        if: steps.ensure.outputs.build_type != 'workflow'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > /tmp/issue.md <<ISSUE_EOF
+          The Pages deploy workflow could not enable GitHub Pages automatically.
+
+          \`\`\`
+          ${{ steps.ensure.outputs.log }}
+          \`\`\`
+
+          Manual fix: **Settings → Pages → Source: GitHub Actions**, then re-run
+          the "Deploy site to GitHub Pages" workflow.
+          ISSUE_EOF
+          gh issue create \
+            --title "GitHub Pages could not be enabled automatically" \
+            --body-file /tmp/issue.md \
+            --repo "$GITHUB_REPOSITORY" || true
+          exit 1
+
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true   # enables Pages (build type: workflow) if not already on
 
       # the whole repository is the site — strip git internals and ship it
       - name: Assemble site
