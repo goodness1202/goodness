@@ -434,8 +434,25 @@ this.agent.move_body(this, delta, this.speed);</div>
           check: { event: 'node_added', when: (d) => d && d.type === 'YSort' },
         },
         {
+          title: 'Light it up',
+          body: `Two nodes change the mood of a whole level:<br><br>
+          🌙 <b>CanvasModulate</b> — tints everything at once (night, sunset, underwater). <br>
+          💡 <b>PointLight2D</b> — a soft radial glow for torches, lamps and magic.<br><br>
+          ➜ Add a <b>PointLight2D</b> node, set <code>color</code> to <code>#ffb347</code> and <code>texture_scale</code> to 2, and press ▶. Then try it in code:`,
+          check: { event: 'node_added', when: (d) => d && d.type === 'PointLight2D' },
+        },
+        {
+          title: 'Night falls',
+          body: `Drop a <b>CanvasModulate</b> node, set its colour to <code>#6b7bb0</code>, and your whole level becomes a torch-lit dungeon — the torches stay warm because lights paint additively <i>after</i> the tint.
+          <div class="snippet">const torch = this.get_node('Torch');
+torch.pulse(1.2, 0.25);              // endless breathing glow
+this.get_node('Night').fade_to('#0b1030', 2.0);   // sunset in two seconds</div>
+          That is exactly how the <b>Dungeon Delve</b> example looks the way it does.`,
+          check: { event: 'node_added', when: (d) => d && d.type === 'CanvasModulate' },
+        },
+        {
           title: 'That is the whole trick',
-          body: `World → parallax behind it → canvas layers in front of it. Add a Camera2D with position smoothing and you have the look of a commercial 2D game. See <b>Dungeon Delve</b> and <code>docs/13-world-layers.md</code>.`,
+          body: `World → parallax behind it → lights over it → canvas layers in front of it. Add a Camera2D with position smoothing and you have the look of a commercial 2D game. See <b>Dungeon Delve</b> and <code>docs/13-world-layers.md</code>.`,
           check: null,
         },
       ],

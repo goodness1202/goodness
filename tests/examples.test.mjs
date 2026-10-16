@@ -171,6 +171,16 @@ for (const name of examples) {
   const player = main.get_node('Player');
   const enemies = main.get_node('Enemies');
   const gems = main.get_node('Gems');
+  /* the dungeon is lit: one world tint plus torches and the player's lantern */
+  const night = main.get_node('Night');
+  ok(night instanceof GE.CanvasModulate, 'dungeon-delve: the world has a CanvasModulate tint');
+  ok(engine.tree._modulates.includes(night), 'dungeon-delve: the renderer knows about the tint');
+  const torches = main.get_node('Torches');
+  ok(torches.lights.length >= 4, `dungeon-delve: torches lit (${torches.lights.length})`);
+  ok(torches.lights.every((l) => l instanceof GE.PointLight2D && l.energy > 0), 'dungeon-delve: every torch is an active PointLight2D');
+  const lantern = player.get_node('Lantern');
+  ok(lantern instanceof GE.PointLight2D && lantern.radius > 60, `dungeon-delve: the player carries a lantern (r=${lantern.radius.toFixed(0)})`);
+  const lit_energy = torches.lights[0].energy;
 
   ok(GE.Autoloads.has('Run'), 'dungeon-delve: Run autoload booted from the project file');
   eq_run: {
@@ -191,6 +201,10 @@ for (const name of examples) {
   for (let i = 0; i < 120; i++) await engine.pump(1, 1 / 60);
   const distance_after = slime.global_position.distance_to(player.global_position);
   ok(distance_after < distance_before, `dungeon-delve: a slime chases the hero (${distance_before.toFixed(0)}px -> ${distance_after.toFixed(0)}px)`);
+  /* the torches breathe while the chase plays out */
+  const moved_lights = torches.lights.filter((l) => Math.abs(l.energy - lit_energy) > 1e-4).length;
+  ok(moved_lights >= 1, `dungeon-delve: torches flicker as the game runs (${moved_lights}/${torches.lights.length} changed)`);
+  ok(torches.lights.every((l) => l.energy > 0.1 && l.energy < 4), 'dungeon-delve: torch energy stays in a sane range');
 
   /* the raycast reports what is in the way */
   const eye = slime.get_node('Eye');

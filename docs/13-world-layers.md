@@ -100,6 +100,43 @@ from the top down, exactly like drawing does.
 
 ---
 
+## Lights: mood in two nodes
+
+| Node | Does |
+|---|---|
+| `CanvasModulate` | multiplies a tint over the whole world — night, sunset, underwater |
+| `PointLight2D` | a soft radial glow: torches, lamps, explosions, headlights |
+
+```js
+const night = get_node('Night');        // CanvasModulate, color = '#4a5a8a'
+const torch = get_node('Torch');        // PointLight2D
+
+torch.energy = 1.4;                     // brightness
+torch.color = '#ffb347';                // warm torch light
+torch.texture_scale = 2;                // radius ≈ 256 px
+torch.blend_mode = 'add';               // 'add' = glow, 'mix' = a spotlight wash
+torch.radius;                           // 128 × texture_scale × scale
+
+torch.flicker(0.2);                     // random jitter — instant campfire
+torch.pulse(1.5, 0.3);                  // endless breathing glow
+```
+
+Lights are drawn **after** the world geometry with the canvas `lighter`
+blend, so they stack, and `CanvasModulate` is applied last — the HUD on a
+`CanvasLayer` stays crisp and un-tinted, exactly like Godot.
+
+```js
+/* day → night without a single extra asset */
+night.fade_to('#0b1030', 2.0);   // tweens the tint over two seconds
+night.set_color('#ffffff');      // …and back to neutral instantly
+```
+
+**Cheap and effective:** one `CanvasModulate` plus a handful of
+`PointLight2D`s turns a flat tilemap into a dungeon. `Dungeon Delve` uses
+one modulate node and four torches.
+
+---
+
 ## Putting it together
 
 ```
@@ -112,6 +149,8 @@ Main (Node2D)
  │   ├─ Props   (YSort)          ← draws by Y
  │   └─ Enemies (YSort)
  │       └─ Slimes … (NavigationAgent2D children)
+ ├─ Night      (CanvasModulate)  ← tints the world blue
+ ├─ Torches    (Node2D)           ← PointLight2D children
  └─ HUD        (CanvasLayer, layer = 10)
      ├─ Score   (Label)
      └─ Health  (ProgressBar)

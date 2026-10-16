@@ -37,6 +37,8 @@ Constants: `Vector2.ZERO ONE UP DOWN LEFT RIGHT`. Y points **down** (screen spac
 | 🌄 **ParallaxLayer** | Node2D | Visual | A single layer of a scrolling background. |
 | 🏔️ **ParallaxBackground** | CanvasLayer | Visual | Draws ParallaxLayer children behind (or in front of) the world. |
 | 🪜 **YSort** | Node2D | Visual | Draws children sorted by their Y position — instant top-down depth. |
+| 🌙 **CanvasModulate** | Node | Visual | Tints the entire world at once — night, sunset, underwater, dream. |
+| 💡 **PointLight2D** | Node2D | Effects | A soft radial light — torches, lamps, explosions, magic, headlights. |
 | 🧩 **TileMap** | Node2D | World | Grid level built from strings of tiles. Draws tiles and collides solids. |
 | 🔤 **Label** | Control | UI | Text on screen. Score, dialogue, titles. |
 | 🔘 **Button** | Control | UI | Clickable button. Emits the "pressed" signal. |
@@ -297,6 +299,44 @@ Draws children sorted by their Y position — instant top-down depth.
 |---|---|---|
 | `position` | vector2 | Position in the world. |
 | `y_sort_enabled` | bool | On by default for YSort. |
+
+---
+
+### 🌙 CanvasModulate
+
+Tints the entire world at once — night, sunset, underwater, dream.
+
+| Property | Type | Description |
+|---|---|---|
+| `color` | color | Multiplied over every world pixel. #ffffff = off. |
+| `visible` | bool | Turn the tint off without deleting the node. |
+
+| Method | Description |
+|---|---|
+| `set_color(color)` | Set the tint (accepts "#0b1030", Color, [r,g,b,a]). |
+| `fade_to(color, duration)` | Tween the tint over time. |
+
+---
+
+### 💡 PointLight2D
+
+A soft radial light — torches, lamps, explosions, magic, headlights.
+*Extends `Node2D`.*
+
+| Property | Type | Description |
+|---|---|---|
+| `color` | color | Light colour. |
+| `energy` | number | Brightness. Animate it for flicker. |
+| `texture_scale` | number | Size multiplier (2 ≈ 260 px across). |
+| `blend_mode` | enum | add = glow on top, mix = replaces the area. |
+| `enabled` | bool | Switch the light off. |
+| `texture` | texture | Optional custom light shape (defaults to a soft circle). |
+
+| Method | Description |
+|---|---|
+| `flicker(amount)` | Randomize energy slightly — instant torch flicker. |
+| `pulse(speed, amount)` | Endless breathing glow. |
+| `radius` | Current world radius in pixels. |
 
 ---
 

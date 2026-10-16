@@ -238,6 +238,37 @@ console.log('\n■ Editor one-click example import (editor.html?import=…)');
 }
 
 /* ================================================================== */
+console.log('\n■ Editor import of a v0.2 project (lights, animation, navigation)');
+{
+  const dom = loadPage('editor.html', { url: 'http://localhost/editor.html?import=examples/dungeon-delve/project.json' });
+  const doc = dom.window.document;
+  await loadScripts(dom, [...ENGINE_FILES, 'editor/tutorials.js', 'editor/api_panel.js', 'editor/editor.js']);
+  await wait(800);
+  const rows = [...doc.querySelectorAll('#scene-tree .tree-node')].map((r) => r.textContent);
+  for (const name of ['Level', 'Nav', 'Night', 'Torches', 'Enemies', 'Player', 'HUD']) {
+    ok(rows.some((r) => r.includes(name)), `imported tree shows ${name}`);
+  }
+  ok(doc.getElementById('scene-title').textContent.includes('dungeon-delve'), 'scene title shows the imported project');
+
+  /* selecting a new node type renders a real inspector (props from its def) */
+  const nightRow = [...doc.querySelectorAll('#scene-tree .tree-node')].find((r) => r.textContent.includes('Night'));
+  nightRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(200);
+  const inspector = doc.getElementById('inspector').textContent;
+  ok(inspector.includes('CanvasModulate'), 'inspector knows the CanvasModulate class');
+  ok(/tints the entire world/i.test(inspector), 'inspector shows the class description');
+
+  const torchRow = [...doc.querySelectorAll('#scene-tree .tree-node')].find((r) => r.textContent.includes('Torches'));
+  torchRow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(200);
+  ok(doc.getElementById('inspector').textContent.length > 100, 'scripted node inspector renders');
+
+  const GE = dom.window.GE;
+  ok(GE.Classes.get('PointLight2D') && GE.Classes.get('CanvasModulate'), 'new classes are in the editor registry');
+  ok(GE.Classes.all().length >= 32, `node palette carries the whole registry (${GE.Classes.all().length})`);
+}
+
+/* ================================================================== */
 console.log(`\n${'='.repeat(60)}`);
 console.log(`  ${passed} passed, ${failed} failed — ${failed === 0 ? 'ALL GREEN ✅' : 'FAILURES ❌'}`);
 console.log('='.repeat(60));

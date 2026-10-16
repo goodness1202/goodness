@@ -176,11 +176,21 @@
     }
     const last = parts[parts.length - 1];
     if (v === null || v === undefined) return;
-    v[last] = value;
+    /* keep engine value types typed on the way out, exactly like the setter would */
+    const current = v[last];
+    if (current instanceof GE.Vector2) v[last] = GE.Vector2.from(value);
+    else if (current instanceof GE.Color) v[last] = GE.Color.from(value);
+    else if (typeof current === 'number' && typeof value !== 'number') v[last] = Number(value) || 0;
+    else v[last] = value;
   }
   function clone_value(v) {
-    if (v instanceof GE.Vector2) return v.copy();
-    if (v instanceof GE.Color) return v.copy();
+    if (typeof v === 'object' && v !== null) {
+      if (typeof v.copy === 'function') return v.copy();
+      if (typeof v.clone === 'function') return v.clone();
+      if (Array.isArray(v)) return v.slice();
+      if (v instanceof GE.Vector2) return new GE.Vector2(v.x, v.y);
+      if (v instanceof GE.Color) return new GE.Color(v.r, v.g, v.b, v.a);
+    }
     if (Array.isArray(v)) return v.slice();
     return v;
   }

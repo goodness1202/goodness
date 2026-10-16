@@ -158,7 +158,10 @@ console.log('\n■ Animated, navigated and layered nodes are first-class citizen
     && kinds['Navigation'].includes('NavigationAgent2D') && kinds['Navigation'].includes('RayCast2D'),
     'Navigation group: region + agent + raycast');
   ok(!!kinds['Visual'] && kinds['Visual'].includes('ParallaxBackground')
-    && kinds['Visual'].includes('ParallaxLayer') && kinds['Visual'].includes('YSort'), 'Visual group: parallax + ysort');
+    && kinds['Visual'].includes('ParallaxLayer') && kinds['Visual'].includes('YSort')
+    && kinds['Visual'].includes('CanvasModulate'), 'Visual group: parallax + ysort + world tint');
+  ok(!!kinds['Effects'] && kinds['Effects'].includes('PointLight2D') && kinds['Effects'].includes('Particles2D'),
+    'Effects group: particles + lights');
 
   /* adding one from the palette must build a live node with its inspector */
   const added = GE.Classes.get('AnimationPlayer');
@@ -219,6 +222,8 @@ console.log('\n■ Tutorials & API panel');
 
   const cards = $$('#tab-tutorial .tut-card').map((c) => c.textContent);
   ok($$('#tab-tutorial .tut-card').length >= 7, `seven guided lessons (${cards.length})`);
+  const tut_src = readFileSync(path.join(ROOT, 'editor/tutorials.js'), 'utf8');
+  ok(tut_src.includes('Light it up') && tut_src.includes('PointLight2D'), 'world lesson teaches lighting');
   ok(cards.some((c) => c.includes('Animate anything')), 'animation lesson listed');
   ok(cards.some((c) => c.includes('Enemies that hunt you')), 'navigation lesson listed');
   ok(cards.some((c) => c.includes('Worlds with depth')), 'parallax/world lesson listed');

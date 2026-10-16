@@ -16,6 +16,7 @@
       this.engine = engine;
       this.ctx = engine.ctx;
       this._items = [];
+      this._lights = [];
       this.last_camera = { x: engine.size.w / 2, y: engine.size.h / 2, zoom: 1 };
     }
 
@@ -58,6 +59,19 @@
       this.view_rect = { x: camX - w / 2 / zoom, y: camY - h / 2 / zoom, w: w / zoom, h: h / zoom };
 
       this._draw_pass(tree.current_scene, 0, ctx, false);
+
+      /* CanvasModulate tints everything the world pass drew (HUD stays clean) */
+      const modulates = (tree._modulates || []).filter((m) => m.visible !== false && m.color && m.color.a > 0);
+      if (modulates) {
+        for (const m of modulates) {
+          ctx.save();
+          ctx.globalCompositeOperation = 'multiply';
+          ctx.fillStyle = (m.color instanceof GE.Color ? m.color : GE.Color.from(m.color)).to_css();
+          const r = this.view_rect || { x: camX - w / 2 / zoom, y: camY - h / 2 / zoom, w: w / zoom, h: h / zoom };
+          ctx.fillRect(r.x, r.y, r.w, r.h);
+          ctx.restore();
+        }
+      }
       ctx.restore();
 
       /* ---- canvas layer pass (screen space, sorted by `layer`) ---- */
@@ -73,6 +87,7 @@
     _draw_pass(root, base_z, ctx, screen_space) {
       if (!root || root._freed || root.visible === false) return;
       this._items.length = 0;
+      this._lights.length = 0;
       this._collect(root, base_z, screen_space);
       this._items.sort((a, b) => a.z - b.z || a.oi - b.oi);
       for (const it of this._items) {
@@ -86,6 +101,20 @@
         catch (e) { GE.Logger.error(`${node}._draw() failed: ${e.message}`); }
         ctx.restore();
       }
+      /* lights paint after the geometry they illuminate (additive glow) */
+      if (this._lights.length) {
+        for (const it of this._lights) {
+          const node = it.node;
+          if (node.enabled === false) continue;
+          ctx.save();
+          ctx.globalCompositeOperation = node.blend_mode === 'mix' ? 'source-over' : 'lighter';
+          if (node instanceof GE.Node2D) this.apply_transform(ctx, node);
+          try { node._draw(ctx, this); }
+          catch (e) { GE.Logger.error(`${node}._draw() failed: ${e.message}`); }
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.restore();
+        }
+      }
     }
 
     /** Recursively collect drawable nodes with their world transforms. */
@@ -95,9 +124,13 @@
       const oi_here = oi.i++;
       if (node instanceof GE.Node2D) {
         node._update_world();
-        if (node._draw_this && node._draw_this()) {
+        if (node._is_light) {
+          if (node._draw_this ? node._draw_this() : true) this._lights.push({ node, z: z_here, oi: oi_here });
+        } else if (node._draw_this && node._draw_this()) {
           this._items.push({ node, z: z_here + (node.z_index || 0), oi: oi_here });
         }
+      } else if (node._is_modulate) {
+        /* handled by the world-pass tint — nothing to collect */
       }
       const child_z = z + (node.z_index || 0);
 

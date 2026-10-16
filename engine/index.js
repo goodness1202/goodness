@@ -33,6 +33,7 @@
     YSort: GE.YSort,
     ParallaxLayer: GE.ParallaxLayer,
     ParallaxBackground: GE.ParallaxBackground,
+    CanvasModulate: GE.CanvasModulate,
 
     /* animation */
     Animation: GE.Animation,
@@ -62,6 +63,7 @@
     HTTPRequest: GE.HTTPRequest,
     AudioPlayer: GE.AudioPlayer,
     Particles2D: GE.Particles2D,
+    PointLight2D: GE.PointLight2D,
 
     /* singletons */
     Input: GE.Input,

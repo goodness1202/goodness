@@ -20,8 +20,8 @@
 <body>
 <h1>⚡ <span>Goodness Engine</span> — browser test run</h1>
 <p>Browser-side checks: engine boot, canvas rendering, project run, API services.
-The full unit suites run in Node: <code>npm test</code> — engine (248), examples (77),
-editor (59), API trainer (17) and site (58) checks, all headless. This page adds
+The full unit suites run in Node: <code>npm test</code> — engine (269), examples (84),
+editor (61), API trainer (17) and site (71) checks, all headless. This page adds
 live browser checks, including one real call to each of the five free APIs.</p>
 <button id="run">Run tests</button>
 <div id="summary">Click “Run tests”.</div>
@@ -159,6 +159,23 @@ document.getElementById('run').onclick = async () => {
   });
   case_('Autoloads expose project singletons', () => {
     return typeof GE.Autoloads.boot === 'function' && typeof GE.Autoloads.get === 'function';
+  });
+  case_('PointLight2D + CanvasModulate build', () => {
+    const light = new GE.PointLight2D();
+    light.texture_scale = 2; light.color = '#ffb347'; light.energy = 1.4;
+    const night = new GE.CanvasModulate();
+    night.set_color('#0b1030');
+    return light.radius === 256 && light.color.to_hex() === '#ffb347' && night.color.to_hex() === '#0b1030' && night.enabled;
+  });
+  case_('colours and vectors tween', () => {
+    const rect = new GE.ColorRect();
+    rect.color = GE.Color.from('#ffffff');
+    rect.position = new GE.Vector2(0, 0);
+    const t1 = new GE.Tween(null, rect);                  // tree-less tween: drive it by hand
+    return rect.color.copy().to_hex() === '#ffffff'
+      && rect.position.clone().x === 0
+      && GE.Color.from('#ff0000').lerp(GE.Color.from('#00ff00'), 0.5).g > 0.4
+      && t1 instanceof GE.Tween;
   });
   case_('Animation helpers (presets used by the editor) build', () => {
     const anim = GE.Animation.from({ length: 0.4, loop: 'pingpong', tracks: [{ property: 'scale', keys: [[0, 1], [0.4, 1.2]] }] });

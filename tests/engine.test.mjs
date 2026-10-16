@@ -489,6 +489,95 @@ section('Save system');
 }
 
 /* ================================================================== */
+section('Lights — CanvasModulate & PointLight2D');
+{
+  const calls = [];
+  const mkctx = () => new Proxy({}, {
+    get(t, k) {
+      if (k === 'canvas') return { width: 640, height: 360 };
+      if (k === 'measureText') return () => ({ width: 10 });
+      if (k === 'createRadialGradient' || k === 'createLinearGradient') {
+        return (...a) => { calls.push(k + '(' + a.join(',') + ')'); return { addColorStop() {} }; };
+      }
+      if (k === 'state') return calls;
+      return (...a) => { calls.push(k + '(' + a.join(',') + ')'); };
+    },
+    set: (t, k, v) => { calls.push('#' + k + '=' + v); return true; },
+  });
+  const canvas = { width: 640, height: 360, getContext: () => mkctx(), addEventListener() {}, removeEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 640, height: 360 }), style: {} };
+  const project = {
+    name: 'lights', settings: { width: 640, height: 360, background: '#000' }, main_scene: 'main', assets: { scripts: {}, images: {} },
+    scenes: { main: { root: { type: 'Node2D', name: 'Main', children: [
+      { type: 'ColorRect', name: 'Floor', props: { position: [100, 100], size: [200, 40], color: '#333333' } },
+      { type: 'PointLight2D', name: 'Torch', props: { position: [150, 120], color: '#ffb347', energy: 1.4, texture_scale: 2 } },
+      { type: 'CanvasModulate', name: 'Night', props: { color: '#5566aa' } },
+    ] } } },
+  };
+  const engine = new GE.Engine({ canvas, project, width: 640, height: 360 });
+  await engine.start();
+  const scene = engine.tree.current_scene;
+  const torch = scene.get_node('Torch');
+  const night = scene.get_node('Night');
+  ok(torch instanceof GE.PointLight2D, 'PointLight2D built from project JSON');
+  ok(night instanceof GE.CanvasModulate, 'CanvasModulate built from project JSON');
+  eq(Math.round(torch.radius), 256, 'radius follows texture_scale');
+  eq(engine.tree._modulates.length, 1, 'the scene tree tracks the modulate node');
+
+  calls.length = 0;
+  engine.render();
+  const log = calls.join('\n');
+  const floor_at = log.indexOf('fillRect(-100,-20,200,40)');  /* ColorRect draws in its own space */
+  const additive_at = log.indexOf('#globalCompositeOperation=lighter');
+  const tint_at = log.lastIndexOf('#globalCompositeOperation=multiply');
+  ok(floor_at >= 0, 'world geometry drew');
+  ok(additive_at > floor_at, 'the light paints after the geometry it illuminates');
+  ok(tint_at > additive_at, 'CanvasModulate tints the finished world last');
+  /* headless has no <canvas>, so the light falls back to a live radial gradient */
+  ok(log.includes('createRadialGradient(0,0,0,0,0,256)'), 'the light builds a radial gradient at its radius');
+  ok(log.includes('arc(0,0,256,'), 'the fallback glow is a circle of the right size');
+
+  /* switching things off must actually remove the work */
+  torch.enabled = false;
+  night.visible = false;
+  calls.length = 0;
+  engine.render();
+  const off = calls.join('\n');
+  ok(!off.includes('drawImage(-256,-256,512,512)'), 'disabled lights draw nothing');
+  ok(!off.includes('#globalCompositeOperation=multiply'), 'a hidden CanvasModulate does not tint');
+
+  /* flicker + fade are scriptable, and the tint is animatable */
+  night.visible = true;
+  const before_energy = torch.energy;
+  torch.flicker(0.3);
+  ok(torch.energy !== before_energy, 'flicker() changes energy');
+  torch.set_color('#66ff99');
+  eq(torch.color.to_hex(), '#66ff99', 'set_color accepts hex');
+  night.set_color('#0b1030');
+  eq(night.color.to_hex(), '#0b1030', 'CanvasModulate.set_color works');
+  ok(night.enabled, 'a non-white tint reports enabled');
+  night.set_color('#ffffff');
+  ok(!night.enabled, 'a white tint is a no-op');
+  night.fade_to('#000033', 0.5);
+  await engine.pump(30);
+  ok(night.color.b < 0.5, `fade_to tweens the tint (b=${night.color.b.toFixed(2)})`);
+  ok(night.color instanceof GE.Color, 'a tweened colour stays a Color (not a plain object)');
+
+  /* colour tweens are the most common tween in a game — pin the behaviour */
+  const rect = scene.get_node('Floor');
+  rect.create_tween().tween_property(rect, 'color', '#220000', 0.4);
+  await engine.pump(30);
+  ok(rect.color instanceof GE.Color && rect.color.r > rect.color.b, `color tween interpolated (${rect.color.to_hex()})`);
+  const vec = scene.get_node('Torch');
+  vec.create_tween().tween_property(vec, 'position', new GE.Vector2(400, 300), 0.4);
+  await engine.pump(12);
+  const mid = vec.position.x;
+  ok(vec.position instanceof GE.Vector2 && mid > 150 && mid < 400, `vector tween interpolates (x=${mid.toFixed(0)})`);
+  await engine.pump(20);
+  ok(Math.round(vec.position.x) === 400 && Math.round(vec.position.y) === 300, 'vector tween lands exactly on the target');
+  engine.stop();
+}
+
+/* ================================================================== */
 section('API services (stubbed fetch)');
 {
   const realFetch = globalThis.fetch;

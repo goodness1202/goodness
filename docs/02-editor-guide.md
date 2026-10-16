@@ -64,6 +64,11 @@ class definition:
   properties the Inspector offers one-click presets (bounce, pop, fade in,
   shake, squash…), so a first animation is two clicks away
 
+The **＋ Add Node** dialog groups all 32 node types by family (Logic, Visual,
+Physics, UI, World, Animation, Navigation, Effects, Audio) — `PointLight2D`
+and `CanvasModulate` sit in Effects and Visual, `AnimationPlayer` in
+Animation, `NavigationAgent2D` in Navigation.
+
 ## Bottom panel
 
 | Tab | What it's for |

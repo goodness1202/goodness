@@ -48,8 +48,9 @@ engine/physics/  physics.js (server: broadphase, resolution, raycast,
 engine/input/    action-mapped input (keyboard/mouse/gamepad)
 engine/audio/    WebAudio synth (SFX presets + Music sequencer)
 engine/nodes/    sprites (+ CanvasLayer, Camera2D) · parallax (ParallaxBackground,
-                 ParallaxLayer, YSort) · tilemap · ui · timer · effects
-                 (Particles2D) · animation_player (AnimationPlayer, Animation) ·
+                 ParallaxLayer, YSort) · lights (CanvasModulate, PointLight2D) ·
+                 tilemap · ui · timer · effects (Particles2D) ·
+                 animation_player (AnimationPlayer, Animation) ·
                  navigation (NavigationRegion2D, NavigationAgent2D, RayCast2D) ·
                  audio_node
 engine/net/      HTTPRequest node + API services (PokéAPI, OpenTDB, Open-Meteo,

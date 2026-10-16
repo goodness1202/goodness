@@ -86,6 +86,43 @@ export default {
           /* the walkable grid is baked from the tilemap at scene start */
           { type: 'NavigationRegion2D', name: 'Nav', props: { agent_radius: 9, auto_tilemap: true } },
 
+          /* ------------------------- underground mood ------------------------- */
+          /* one CanvasModulate tints the whole level; the torches below are
+             PointLight2D nodes, which paint additively on top of it. */
+          { type: 'CanvasModulate', name: 'Night', props: { color: '#6b7bb0' } },
+          { type: 'Node2D', name: 'Torches', script: `
+{
+  extends: 'Node2D',
+
+  /* scatter torches on the open floor and let each one flicker a little */
+  _ready() {
+    this.level = this.get_node('../Level');
+    this.lights = [];
+    const spots = [[3, 2], [16, 2], [26, 2], [9, 12], [22, 12], [5, 17], [30, 6], [13, 19]];
+    for (const [x, y] of spots) {
+      if (this.level.is_cell_solid(x, y)) continue;
+      const light = new Goodness.PointLight2D();
+      light.name = 'Torch' + (this.lights.length + 1);
+      light.position = this.level.map_to_world(x, y);
+      light.color = '#ffb347';
+      light.energy = 0.85 + Math.random() * 0.3;
+      light.texture_scale = 1.5;
+      this.add_child(light);
+      light.pulse(1.2 + Math.random(), 0.22);
+      this.lights.push(light);
+    }
+    Goodness.Logger.info('Torches lit: ' + this.lights.length);
+  },
+
+  /* a slow breathing pulse over the whole dungeon, on top of the flicker */
+  _process(delta) {
+    this.t = (this.t || 0) + delta;
+    for (let i = 0; i < this.lights.length; i++) {
+      this.lights[i].energy = Math.max(0, this.lights[i].energy + Math.sin(this.t * 9 + i) * 0.004);
+    }
+  },
+}` },
+
           { type: 'Node2D', name: 'Gems', script: `
 {
   extends: 'Node2D',
@@ -431,6 +468,9 @@ export default {
             { type: 'Sprite', name: 'Sprite', props: { texture: 'goodness://hero', scale: [0.44, 0.44] } },
             { type: 'Camera2D', name: 'Camera', props: { current: true, smoothing_enabled: true, smoothing_speed: 6, limit_left: 0, limit_top: 0, limit_right: 1280, limit_bottom: 704 } },
             { type: 'RayCast2D', name: 'Eye', props: { target_position: [0, 0], debug_draw: false } },
+            { type: 'PointLight2D', name: 'Lantern', props: {
+              color: '#ffd9a0', energy: 0.9, texture_scale: 1.2,
+            } },
             { type: 'Particles2D', name: 'Dust', props: {
               emitting: false, amount: 0, lifetime: 0.5, spread: 40, direction: 90,
               speed_min: 20, speed_max: 70, gravity: [0, 40], colors: ['#5f6f8f', '#3f4c66'], scale_min: 0.2, scale_max: 0.45,

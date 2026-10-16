@@ -29,6 +29,7 @@
     'engine/physics/bodies.js',
     'engine/nodes/sprites.js',
     'engine/nodes/parallax.js',
+    'engine/nodes/lights.js',
     'engine/nodes/tilemap.js',
     'engine/nodes/ui.js',
     'engine/nodes/timer.js',

@@ -47,9 +47,9 @@ interactive lessons watch what you do and auto-advance.
 
 ## What's inside
 
-- **Node & scene system** — 30 node types (Sprite, CharacterBody2D, TileMap,
-  Camera2D, Particles2D, AnimationPlayer, NavigationAgent2D, ParallaxLayer, UI,
-  Timer, HTTPRequest…), instancing, groups, signals
+- **Node & scene system** — 32 node types (Sprite, CharacterBody2D, TileMap,
+  Camera2D, Particles2D, AnimationPlayer, NavigationAgent2D, ParallaxLayer,
+  PointLight2D, UI, Timer, HTTPRequest…), instancing, groups, signals
 - **Animation** — `AnimationPlayer` with property / colour / method-call tracks,
   16 easings, three loop modes and queues; one-line tweens for quick reactions
 - **Navigation** — `NavigationRegion2D` bakes any TileMap (or polygon) into a
@@ -57,6 +57,8 @@ interactive lessons watch what you do and auto-advance.
   `RayCast2D` gives them eyes
 - **World layers** — parallax backgrounds with endless mirroring, y-sorted
   top-down depth, canvas layers for HUDs
+- **Light & mood** — `CanvasModulate` tints the world (night, sunset,
+  underwater), `PointLight2D` glows additively and can flicker or pulse
 - **Visual editor** — scene dock, inspector, viewport gizmos, play mode,
   script editor with live compile checks, console, undo/redo — all in the browser
 - **Physics** — `CharacterBody2D.move_and_slide()` with coyote time, rigid
@@ -115,7 +117,7 @@ graded trainer tasks in the editor · full examples: *Trivia Quest*,
 | ⚔️ **Creature Clash** | a battler where sprites, HP and damage all come from PokéAPI |
 | ✨ **Particles Playground** | the effects lab |
 | 🖼️ **Art Gallery** | memory game with real museum art: Art Institute API, flip animations, save slots |
-| 🗝️ **Dungeon Delve** | pathfinding slimes, raycast vision, y-sorting, parallax depth, an autoload score |
+| 🗝️ **Dungeon Delve** | pathfinding slimes, raycast vision, torchlight, an autoload score, parallax depth |
 | 🔤 **Word Duel** | beat the clock with Datamuse synonyms, rhymes and definitions |
 
 Play them at `examples/index.html`, or load any into the editor with
@@ -132,12 +134,12 @@ A 13-chapter book lives in [`docs/`](docs/01-getting-started.md) (in-site reader
 ## For developers & contributors
 
 ```bash
-node tests/engine.test.mjs      # 248 tests — math, nodes, physics, renderer, animation, navigation…
-node tests/examples.test.mjs    # 77 tests — boots & plays every example, headless
-node tests/editor.test.mjs      # 54 jsdom tests — drives the real editor UI
+node tests/engine.test.mjs      # 269 tests — math, nodes, physics, renderer, animation, navigation, lights…
+node tests/examples.test.mjs    # 84 tests — boots & plays every example, headless
+node tests/editor.test.mjs      # 61 jsdom tests — drives the real editor UI
 node tests/trainer.test.mjs     # 17 jsdom tests — grades every API-trainer task
-node tests/site.test.mjs        # 58 jsdom tests — docs reader, player and editor pages
-npm test                        # all five suites (459 checks, all green)
+node tests/site.test.mjs        # 71 jsdom tests — docs reader, player and editor pages
+npm test                        # all five suites (502 checks, all green)
 node examples/build.mjs         # rebuild examples/*/project.json
 node tools/gen_api_docs.mjs     # regenerate docs/api-reference.md
 bash tools/build.sh             # bundle dist/goodness.js (single file)
@@ -153,7 +155,7 @@ for testing. Architecture deep-dive: [docs/10-architecture.md](docs/10-architect
 engine/       the engine (core, physics, nodes, input, audio, net)
 editor/       the visual editor (HTML/CSS/JS)
 examples/     nine example games (project.mjs → project.json)
-docs/         the tutorial book + generated API reference
+docs/         the tutorial book (13 chapters) + generated API reference
 tools/        build & docs scripts
 tests/        node + jsdom test suites
 dist/         single-file bundle (generated)

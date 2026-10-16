@@ -26,6 +26,7 @@
       this._tweens = new Set();
       this._cameras = [];
       this._canvas_layers = [];
+      this._modulates = [];
       this._active_camera = null;
 
       this.physics = new GE.PhysicsServer(this, options.physics || {});
@@ -118,6 +119,7 @@
       const walk = (n) => {
         if (n instanceof GE.Camera2D) this._cameras.push(n);
         if (n instanceof GE.CanvasLayer) this._canvas_layers.push(n);
+        if (GE.CanvasModulate && n instanceof GE.CanvasModulate) { n._is_modulate = true; this._modulates.push(n); }
         this.physics._register(n);
         for (const g of n._groups) this._add_to_group(g, n);
         for (const c of n.children) walk(c);
@@ -129,6 +131,7 @@
       const walk = (n) => {
         const ci = this._cameras.indexOf(n); if (ci >= 0) this._cameras.splice(ci, 1);
         const li = this._canvas_layers.indexOf(n); if (li >= 0) this._canvas_layers.splice(li, 1);
+        const mi = (this._modulates || []).indexOf(n); if (mi >= 0) this._modulates.splice(mi, 1);
         this.physics._unregister(n);
         for (const c of n.children) walk(c);
       };

@@ -88,6 +88,18 @@
             }
           },
           {
+            "type": "CanvasModulate",
+            "name": "Night",
+            "props": {
+              "color": "#6b7bb0"
+            }
+          },
+          {
+            "type": "Node2D",
+            "name": "Torches",
+            "script": "\n{\n  extends: 'Node2D',\n\n  /* scatter torches on the open floor and let each one flicker a little */\n  _ready() {\n    this.level = this.get_node('../Level');\n    this.lights = [];\n    const spots = [[3, 2], [16, 2], [26, 2], [9, 12], [22, 12], [5, 17], [30, 6], [13, 19]];\n    for (const [x, y] of spots) {\n      if (this.level.is_cell_solid(x, y)) continue;\n      const light = new Goodness.PointLight2D();\n      light.name = 'Torch' + (this.lights.length + 1);\n      light.position = this.level.map_to_world(x, y);\n      light.color = '#ffb347';\n      light.energy = 0.85 + Math.random() * 0.3;\n      light.texture_scale = 1.5;\n      this.add_child(light);\n      light.pulse(1.2 + Math.random(), 0.22);\n      this.lights.push(light);\n    }\n    Goodness.Logger.info('Torches lit: ' + this.lights.length);\n  },\n\n  /* a slow breathing pulse over the whole dungeon, on top of the flicker */\n  _process(delta) {\n    this.t = (this.t || 0) + delta;\n    for (let i = 0; i < this.lights.length; i++) {\n      this.lights[i].energy = Math.max(0, this.lights[i].energy + Math.sin(this.t * 9 + i) * 0.004);\n    }\n  },\n}"
+          },
+          {
             "type": "Node2D",
             "name": "Gems",
             "script": "\n{\n  extends: 'Node2D',\n  pickups: [],\n\n  _ready() {\n    this.level = this.get_node('../Level');\n    this.player = this.get_node('../Player');\n    const cells = this.level.get_cells_by_type('g');\n    for (const cell of cells) {\n      this.level.set_cell(cell.x, cell.y, '.');\n      this._spawn(this.level.map_to_world(cell.x, cell.y));\n    }\n  },\n\n  _spawn(world_pos) {\n    const holder = new Goodness.Node2D();\n    holder.name = 'Gem' + (this.pickups.length + 1);\n    holder.position = world_pos;\n    holder.taken = false;\n    holder.modulate = new Goodness.Color(1, 1, 1, 1);\n\n    const sprite = new Goodness.Sprite();\n    sprite.name = 'Sprite';\n    sprite.texture_src = 'goodness://gem';\n    sprite.scale = new Vector2(0.5, 0.5);\n    holder.add_child(sprite);\n\n    /* each gem floats and spins with its own tiny AnimationPlayer */\n    const anim = new Goodness.AnimationPlayer();\n    anim.name = 'Anim';\n    holder.add_child(anim);\n    const base_y = holder.position.y;\n    anim.animations = {\n      float: { length: 1.6, loop: true, tracks: [\n        { property: 'position.y', keys: [[0, base_y], [0.8, base_y - 9, 'sine_in_out'], [1.6, base_y]] },\n      ] },\n      spin: { length: 2, loop: true, tracks: [\n        { node: 'Sprite', property: 'rotation', keys: [[0, 0], [2, 360]] },\n      ] },\n      collect: { length: 0.3, tracks: [\n        { property: 'scale', keys: [[0, [1, 1]], [0.3, [1.7, 1.7], 'sine_out']] },\n        { property: 'modulate', keys: [[0, '#ffffff'], [0.3, '#ffffff00']] },\n      ] },\n    };\n    anim.play('float');\n    anim.play('spin', { restart: true });\n\n    this.add_child(holder);\n    this.pickups.push(holder);\n  },\n\n  _process(delta) {\n    if (!this.player || this.player.dead) return;\n    for (const gem of this.pickups) {\n      if (gem.taken || gem._freed) continue;\n      const d = gem.global_position.distance_to(this.player.global_position);\n      if (d < 26) {\n        gem.taken = true;\n        gem.get_node('Anim').play('collect');\n        this.player.collect_gem(gem.global_position);\n        const t = gem.create_tween();\n        if (t) t.interval(0.3).then(() => gem.queue_free());\n      }\n    }\n    this.pickups = this.pickups.filter((g) => !g._freed);\n  },\n}"
@@ -231,6 +243,15 @@
                     0
                   ],
                   "debug_draw": false
+                }
+              },
+              {
+                "type": "PointLight2D",
+                "name": "Lantern",
+                "props": {
+                  "color": "#ffd9a0",
+                  "energy": 0.9,
+                  "texture_scale": 1.2
                 }
               },
               {
