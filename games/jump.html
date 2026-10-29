@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jump · Level 5 — Dopamine Games</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="shell">
+  <a href="index.html" class="back">⟵ Dopamine Games</a>
+  <div class="title"><h1>Jump</h1><span class="level">Level 5 — time jumps over cacti and birds</span></div>
+</header>
+<main class="game-page">
+  <div class="playfield">
+    <canvas id="game" width="640" height="480"></canvas>
+    <canvas id="dish" width="220" height="480"></canvas>
+  </div>
+  <div class="hud">
+    <div class="dopamine-row">
+      <span class="label">DOPAMINE</span>
+      <div class="bar"><div class="fill" id="barFill"></div></div>
+      <span id="dopamineText" class="value">0.50</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label">Cleared</span><span id="statCleared" class="value">0</span></div>
+      <div class="stat"><span class="label">Crashes</span><span id="statCrash" class="value">0</span></div>
+      <div class="stat"><span class="label">Speed</span><span id="statSpeed" class="value">1×</span></div>
+      <div class="stat"><span class="label">Epsilon</span><span id="statEps" class="value">1.00</span></div>
+    </div>
+  </div>
+  <div class="controls">
+    <button id="btnStart">Start training</button>
+    <button id="btnPause">Pause</button>
+    <button id="btnReset">Reset brain</button>
+    <label class="manual"><input type="checkbox" id="chkManual"> You play (brain watches)</label>
+  </div>
+  <p class="note">Runner auto-runs. <b>Jump over cacti</b> (short), but <b>do not jump at birds</b> (fly high) — stay on the ground for those. <b>Obstacle cleared = calm beat (+1)</b>, <b>crash = noise (−1)</b>. Speed rises with every cleared obstacle.</p>
+</main>
+<script src="shared/audio.js"></script>
+<script src="shared/brain.js"></script>
+<script src="shared/dish.js"></script>
+<script>
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const dish = new NeuronDish(document.getElementById('dish'));
+const audio = new DopamineAudio();
+const dopamine = new DopamineSystem();
+const brain = new DishBrain({ inputSize: 5, outputSize: 2, hiddenSize: 16, lr: 0.03, gamma: 0.96,
+  epsilon: 1, epsilonMin: 0.05, epsilonDecay: 0.9991, seed: 51 });
+
+const W = 640, H = 480, GROUND = H - 40;
+let runner = { x: 140, y: GROUND, w: 30, h: 40, vy: 0, onGround: true };
+let obstacles = [];
+let spawnTimer = 0;
+let cleared = 0, crashes = 0;
+let running = false, manual = false;
+const ACT_JUMP = 0, ACT_STAY = 1;
+let lastTime = 0, raf = null;
+
+function clamp(v, a, b) { return Math.max(a, Math.min(v, b)); }
+function norm(v, a, b) { return (v - a) / (b - a) * 2 - 1; }
+
+function speedFactor() { return 1 + cleared * 0.08; }
+
+function spawnObstacle() {
+  const isBird = Math.random() < 0.35;
+  obstacles.push({
+    x: W + 100 + Math.random() * 180,
+    y: isBird ? GROUND - 70 : GROUND - 30,
+    w: isBird ? 36 : 24,
+    h: isBird ? 20 : 30,
+    type: isBird ? 'bird' : 'cactus',
+    alive: true
+  });
+  if (obstacles.length > 4) obstacles.shift();
+}
+
+function nearestAhead() {
+  let best = null, bestDist = 1e9;
+  for (const o of obstacles) {
+    if (!o.alive || o.x + o.w < runner.x) continue;
+    const d = o.x - runner.x;
+    if (d >= 0 && d < bestDist) { bestDist = d; best = o; }
+  }
+  return best;
+}
+
+function getState() {
+  const o = nearestAhead();
+  if (!o) return [ -1, 0, 0, runner.onGround ? 1 : -1, norm(Math.min(speedFactor(), 4), 1, 4) ];
+  return [ norm(o.x - runner.x, 0, W),
+           o.type === 'bird' ? 1 : -1,
+           norm(o.h, 10, 90),
+           runner.onGround ? 1 : -1,
+           norm(Math.min(speedFactor(), 4), 1, 4) ];
+}
+
+function step() {
+  const s = getState();
+  const a = manual ? (keys.jump ? ACT_JUMP : ACT_STAY) : brain.act(s, manual ? 0 : brain.epsilon);
+  if (!manual) {
+    if (a === ACT_JUMP && runner.onGround) { runner.vy = -11.6; runner.onGround = false; }
+  } else {
+    if (keys.jump && runner.onGround) { runner.vy = -11.6; runner.onGround = false; }
+  }
+
+  runner.y += runner.vy;
+  runner.vy += 0.7;
+  if (runner.y > GROUND) { runner.y = GROUND; runner.vy = 0; runner.onGround = true; }
+
+  let reward = 0.01; // tiny survival bonus
+  spawnTimer++;
+  if (spawnTimer > 70 + Math.random() * 80 - cleared * 4 && obstacles.length < 4) {
+    spawnTimer = 0; spawnObstacle();
+  }
+
+  for (const o of obstacles) {
+    if (!o.alive) continue;
+    o.x -= (5.5 + cleared * 0.14) * speedFactor();
+    if (runner.x < o.x + o.w && runner.x + runner.w > o.x && runner.y < o.y + o.h && runner.y + runner.h > o.y) {
+      o.alive = false;
+      reward = -1; crashes++;
+      dopamine.miss(); audio.playMiss(); dish.miss();
+    }
+    if (o.x + o.w < runner.x && o.alive) {
+      o.alive = false;
+      reward = 1; cleared++;
+      dopamine.hit(); audio.playHit(); dish.hit();
+    }
+  }
+  obstacles = obstacles.filter(o => o.alive && o.x + o.w > -80);
+
+  const s2 = getState();
+  if (!manual) brain.remember(s, a, reward, s2, false);
+  else brain.remember(s, a, reward, s2, false);
+}
+
+const keys = { jump: false };
+window.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'ArrowUp') keys.jump = true; });
+window.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'ArrowUp') keys.jump = false; });
+window.addEventListener('pointerdown', () => audio.boot());
+
+function update() {
+  if (!running) return;
+  for (let i = 0; i < 3; i++) step();
+  if (brain.memory.length >= brain.minMemory) { brain.trainBatch(); brain.trainBatch(); }
+  brain.decayEpsilon();
+}
+
+function lerpColor(a, b, t) {
+  const parse = c => ({ r: parseInt(c.slice(1, 3), 16), g: parseInt(c.slice(3, 5), 16), b: parseInt(c.slice(5, 7), 16) });
+  const ca = parse(a), cb = parse(b);
+  return `rgb(${Math.round(ca.r + (cb.r - ca.r) * t)}, ${Math.round(ca.g + (cb.g - ca.g) * t)}, ${Math.round(ca.b + (cb.b - ca.b) * t)})`;
+}
+
+function draw() {
+  ctx.fillStyle = '#0b1021'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#161e3a'; ctx.fillRect(0, GROUND, W, H - GROUND);
+  ctx.fillStyle = '#22d3ee'; ctx.fillRect(runner.x, runner.y, runner.w, runner.h);
+  for (const o of obstacles) {
+    if (!o.alive) continue;
+    ctx.fillStyle = o.type === 'bird' ? '#f472b6' : '#4ade80';
+    ctx.fillRect(o.x, o.y, o.w, o.h);
+  }
+  dish.draw(dopamine.tone);
+}
+
+function hud() {
+  document.getElementById('barFill').style.width = (dopamine.level * 100) + '%';
+  document.getElementById('barFill').style.background = lerpColor('#f87171', '#4ade80', dopamine.level);
+  document.getElementById('dopamineText').textContent = dopamine.level.toFixed(2);
+  document.getElementById('statCleared').textContent = cleared;
+  document.getElementById('statCrash').textContent = crashes;
+  document.getElementById('statSpeed').textContent = speedFactor().toFixed(1) + '×';
+  document.getElementById('statEps').textContent = brain.epsilon.toFixed(2);
+}
+
+function loop(now) {
+  if (!lastTime) lastTime = now;
+  update(); draw(); hud();
+  raf = requestAnimationFrame(loop);
+}
+
+document.getElementById('btnStart').onclick = () => { audio.boot(); running = true; lastTime = 0; if (!raf) raf = requestAnimationFrame(loop); };
+document.getElementById('btnPause').onclick = () => { running = false; if (raf) cancelAnimationFrame(raf); raf = null; };
+document.getElementById('btnReset').onclick = () => {
+  running = false; if (raf) cancelAnimationFrame(raf); raf = null;
+  brain = new DishBrain({ inputSize: 5, outputSize: 2, hiddenSize: 16, lr: 0.03, gamma: 0.96,
+    epsilon: 1, epsilonMin: 0.05, epsilonDecay: 0.9991, seed: Date.now() % 100000 });
+  dopamine = new DopamineSystem(); cleared = 0; crashes = 0; obstacles = []; spawnTimer = 0;
+  runner.y = GROUND; runner.vy = 0; runner.onGround = true; lastTime = 0;
+  running = true; raf = requestAnimationFrame(loop);
+};
+</script>
+</body>
+</html>

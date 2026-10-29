@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dopamine Games — Goodness</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="shell">
+  <a href="../index.html" class="back">⟵ Goodness Engine</a>
+  <div class="title"><h1>🧠 Dopamine Games</h1><span class="level">Pong + 5 brain-in-a-dish learners</span></div>
+</header>
+<main class="game-page">
+  <section class="hero">
+    <h1>Games that learn like a brain</h1>
+    <p>Each game trains its own small neural network from dopamine alone. <b>Hits play a calm beat</b> and raise dopamine; <b>misses play noise</b> and drop it. The network adjusts its synapses so calm beats repeat and noise fades — the same idea as cortical cells in a dish learning to play Pong. Pong is level 1 (easiest); every level after it is harder.</p>
+  </section>
+  <div class="grid">
+    <article class="card">
+      <div class="level-badge">Level 1 · Easiest</div>
+      <h2>Pong</h2>
+      <p>Intercept the ball with the paddle. The agent must learn where to move so the ball bounces instead of sailing past.</p>
+      <a href="pong.html" class="btn">Play Pong</a>
+    </article>
+    <article class="card">
+      <div class="level-badge">Level 2</div>
+      <h2>Breakout</h2>
+      <p>Keep the ball alive and clear the brick wall. Angled bounces and aiming make this harder than Pong.</p>
+      <a href="breakout.html" class="btn">Play Breakout</a>
+    </article>
+    <article class="card">
+      <div class="level-badge">Level 3</div>
+      <h2>Catcher</h2>
+      <p>Catch the good items and let the bombs fall. The agent must classify falling objects while they descend.</p>
+      <a href="catcher.html" class="btn">Play Catcher</a>
+    </article>
+    <article class="card">
+      <div class="level-badge">Level 4</div>
+      <h2>Drive</h2>
+      <p>Switch lanes to dodge traffic. Lanes change smoothly, so the brain must anticipate instead of react.</p>
+      <a href="drive.html" class="btn">Play Drive</a>
+    </article>
+    <article class="card">
+      <div class="level-badge">Level 5</div>
+      <h2>Jump</h2>
+      <p>Time jumps over cacti and birds. Jump too late and you crash; jump at a bird and you crash. Pure timing.</p>
+      <a href="jump.html" class="btn">Play Jump</a>
+    </article>
+    <article class="card">
+      <div class="level-badge">Level 6 · Hardest</div>
+      <h2>Shooter</h2>
+      <p>Move, aim, and shoot invaders while dodging collisions. Two skills at once under dopamine pressure.</p>
+      <a href="shooter.html" class="btn">Play Shooter</a>
+    </article>
+  </div>
+  <section class="how">
+    <h3>How the "brain" works</h3>
+    <p>Every game runs a tiny <b>multi-layer perceptron</b> (a few hundred synapses) with Q-learning and experience replay. Each frame it picks an action (epsilon-greedy exploration), receives a dopamine reward, and updates its weights so actions followed by a calm beat are repeated and actions followed by noise are suppressed. A moving <b>neuron dish</b> draws the activity: calm ripples spread on hits, erratic static flashes on misses.</p>
+    <ul>
+      <li><b>Hit</b> → calm beat (+reward) → dopamine rises → ripples in the dish</li>
+      <li><b>Miss</b> → noise burst (−reward) → dopamine falls → static flashes in the dish</li>
+      <li><b>Epsilon</b> starts at 1.0 (random babbling) and decays as the brain figures the game out</li>
+    </ul>
+    <p><em>Tip: open the JavaScript console to see nothing interesting — everything happens on screen. You can toggle "You play" to drive the agent yourself while the brain watches and learns from you.</em></p>
+  </section>
+</main>
+</body>
+</html>

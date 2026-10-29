@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shooter · Level 6 — Dopamine Games</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="shell">
+  <a href="index.html" class="back">⟵ Dopamine Games</a>
+  <div class="title"><h1>Shooter</h1><span class="level">Level 6 · Hardest — move, aim, shoot, dodge</span></div>
+</header>
+<main class="game-page">
+  <div class="playfield">
+    <canvas id="game" width="640" height="640"></canvas>
+    <canvas id="dish" width="220" height="640"></canvas>
+  </div>
+  <div class="hud">
+    <div class="dopamine-row">
+      <span class="label">DOPAMINE</span>
+      <div class="bar"><div class="fill" id="barFill"></div></div>
+      <span id="dopamineText" class="value">0.50</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label">Destroyed</span><span id="statDestroyed" class="value">0</span></div>
+      <div class="stat"><span class="label">Hits taken</span><span id="statHit" class="value">0</span></div>
+      <div class="stat"><span class="label">Escaped</span><span id="statEscaped" class="value">0</span></div>
+      <div class="stat"><span class="label">Epsilon</span><span id="statEps" class="value">1.00</span></div>
+    </div>
+  </div>
+  <div class="controls">
+    <button id="btnStart">Start training</button>
+    <button id="btnPause">Pause</button>
+    <button id="btnReset">Reset brain</button>
+    <label class="manual"><input type="checkbox" id="chkManual"> You play (brain watches)</label>
+  </div>
+  <p class="note">Move left/right and shoot upward. Invaders descend from the top. <b>Invader destroyed = calm beat (+1)</b>, <b>invader touches you or escapes = noise (−1)</b>. The hardest level: aim <i>and</i> dodge under dopamine pressure.</p>
+</main>
+<script src="shared/audio.js"></script>
+<script src="shared/brain.js"></script>
+<script src="shared/dish.js"></script>
+<script>
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const dish = new NeuronDish(document.getElementById('dish'));
+const audio = new DopamineAudio();
+const dopamine = new DopamineSystem();
+const brain = new DishBrain({ inputSize: 8, outputSize: 4, hiddenSize: 20, lr: 0.025, gamma: 0.96,
+  epsilon: 1, epsilonMin: 0.06, epsilonDecay: 0.999, seed: 61 });
+
+const W = 640, H = 640;
+let ship = { x: W/2 - 20, y: H - 60, w: 40, h: 30, cooldown: 0 };
+let bullets = [];
+let enemies = [];
+let shootTimer = 0;
+let destroyed = 0, hitTaken = 0, escaped = 0;
+let running = false, manual = false, manAction = 3;
+const ACT_L = 0, ACT_R = 1, ACT_SHOOT = 2, ACT_STAY = 3;
+let lastTime = 0, raf = null;
+
+function clamp(v, a, b) { return Math.max(a, Math.min(b, b)); }
+function norm(v, a, b) { return (v - a) / (b - a) * 2 - 1; }
+
+function spawnEnemy() {
+  const vx = (Math.random() - 0.5) * 1.2;
+  enemies.push({ x: Math.random() * (W - 44), y: -42, w: 44, h: 32, vx, vy: 3, alive: true, shootCd: 60 + Math.random() * 60 });
+  if (enemies.length > 7) enemies.shift();
+}
+
+function nearestEnemy() {
+  let best = null, bestY = -1;
+  for (const e of enemies) { if (!e.alive || e.y > ship.y) continue; if (e.y > bestY) { bestY = e.y; best = e; } }
+  return best;
+}
+
+function getState() {
+  const bActive = bullets.length ? 1 : -1;
+  const bY = bullets.length ? norm(bullets[0].y, 0, H) : -1;
+  const cd = norm(Math.max(ship.cooldown, 0), 0, 20);
+  const e = nearestEnemy();
+  if (!e) return [ norm(ship.x + ship.w/2, 0, W), -1, -1, -1, -1, bActive, bY, cd ];
+  return [ norm(ship.x + ship.w/2, 0, W),
+           norm(e.x + e.w/2, 0, W), norm(e.y, 0, H), norm(e.vx, -3, 3), norm(e.vy, 0, 8),
+           bActive, bY, cd ];
+}
+
+function applyAction(a) {
+  const spd = 7;
+  if (a === ACT_L) ship.x -= spd;
+  else if (a === ACT_R) ship.x += spd;
+  else if (a === ACT_SHOOT && ship.cooldown <= 0 && bullets.length < 4) {
+    bullets.push({ x: ship.x + ship.w/2 - 2, y: ship.y, w: 4, h: 14, vy: 10, alive: true });
+    ship.cooldown = 14;
+  }
+  ship.x = clamp(ship.x, 0, W - ship.w);
+}
+
+function step() {
+  const s = getState();
+  const a = manual ? manAction : brain.act(s, manual ? 0 : brain.epsilon);
+  if (!manual) applyAction(a); else applyAction(manAction);
+
+  if (ship.cooldown > 0) ship.cooldown--;
+  let reward = 0;
+
+  if (shootTimer++ > 70) { shootTimer = 0; spawnEnemy(); }
+
+  for (const b of bullets) {
+    if (!b.alive) continue;
+    b.y -= b.vy;
+    if (b.y < 0) b.alive = false;
+  }
+  bullets = bullets.filter(b => b.alive);
+
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    e.x += e.vx;
+    if (e.x <= 0 || e.x + e.w >= W) e.vx *= -1;
+    e.y += e.vy;
+
+    if (e.shootCd-- <= 0) { e.shootCd = 45 + Math.random() * 60; }
+    if (e.y > H) { e.alive = false; reward -= 0.6; escaped++; dopamine.miss(); audio.playMiss(); dish.miss(); }
+
+    // bullet vs enemy
+    for (const b of bullets) {
+      if (!b.alive) continue;
+      if (b.x > e.x && b.x < e.x + e.w && b.y > e.y && b.y < e.y + e.h) {
+        b.alive = false; e.alive = false;
+        reward += 1; destroyed++;
+        dopamine.hit(); audio.playHit(); dish.hit();
+      }
+    }
+    // enemy vs ship
+    if (ship.x < e.x + e.w && ship.x + ship.w > e.x && ship.y < e.y + e.h && ship.y + ship.h > e.y) {
+      e.alive = false;
+      reward -= 1; hitTaken++;
+      dopamine.miss(); audio.playMiss(); dish.miss();
+    }
+  }
+  enemies = enemies.filter(e => e.alive && e.y < H + 60);
+
+  const s2 = getState();
+  if (!manual) brain.remember(s, a, reward, s2, false);
+  else brain.remember(s, manAction, reward, s2, false);
+}
+
+const keys = {};
+window.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') keys.l = true; if (e.key === 'ArrowRight') keys.r = true; if (e.key === ' ') manAction = ACT_SHOOT; });
+window.addEventListener('keyup', e => { if (e.key === 'ArrowLeft') keys.l = false; if (e.key === 'ArrowRight') keys.r = false; if (e.key === ' ') manAction = ACT_STAY; });
+window.addEventListener('pointerdown', () => audio.boot());
+
+function update() {
+  if (!running) return;
+  for (let i = 0; i < 3; i++) {
+    if (manual) {
+      manAction = keys.l ? ACT_L : (keys.r ? ACT_R : ACT_STAY);
+      // space handled in key events; keep shooting while held
+      if (keys.shoot) manAction = ACT_SHOOT;
+    }
+    step();
+  }
+  if (brain.memory.length >= brain.minMemory) { brain.trainBatch(); brain.trainBatch(); }
+  brain.decayEpsilon();
+}
+
+window.addEventListener('keydown', e => { if (e.code === 'Space') keys.shoot = true; });
+window.addEventListener('keyup', e => { if (e.code === 'Space') keys.shoot = false; });
+
+function lerpColor(a, b, t) {
+  const parse = c => ({ r: parseInt(c.slice(1, 3), 16), g: parseInt(c.slice(3, 5), 16), b: parseInt(c.slice(5, 7), 16) });
+  const ca = parse(a), cb = parse(b);
+  return `rgb(${Math.round(ca.r + (cb.r - ca.r) * t)}, ${Math.round(ca.g + (cb.g - ca.g) * t)}, ${Math.round(ca.b + (cb.b - ca.b) * t)})`;
+}
+
+function draw() {
+  ctx.fillStyle = '#0b1021'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#22d3ee'; ctx.fillRect(ship.x, ship.y, ship.w, ship.h);
+  for (const b of bullets) { if (!b.alive) continue; ctx.fillStyle = '#4ade80'; ctx.fillRect(b.x, b.y, b.w, b.h); }
+  for (const e of enemies) { if (!e.alive) continue; ctx.fillStyle = '#f472b6'; ctx.fillRect(e.x, e.y, e.w, e.h); }
+  dish.draw(dopamine.tone);
+}
+
+function hud() {
+  document.getElementById('barFill').style.width = (dopamine.level * 100) + '%';
+  document.getElementById('barFill').style.background = lerpColor('#f87171', '#4ade80', dopamine.level);
+  document.getElementById('dopamineText').textContent = dopamine.level.toFixed(2);
+  document.getElementById('statDestroyed').textContent = destroyed;
+  document.getElementById('statHit').textContent = hitTaken;
+  document.getElementById('statEscaped').textContent = escaped;
+  document.getElementById('statEps').textContent = brain.epsilon.toFixed(2);
+}
+
+function loop(now) {
+  if (!lastTime) lastTime = now;
+  update(); draw(); hud();
+  raf = requestAnimationFrame(loop);
+}
+
+document.getElementById('btnStart').onclick = () => { audio.boot(); running = true; lastTime = 0; if (!raf) raf = requestAnimationFrame(loop); };
+document.getElementById('btnPause').onclick = () => { running = false; if (raf) cancelAnimationFrame(raf); raf = null; };
+document.getElementById('btnReset').onclick = () => {
+  running = false; if (raf) cancelAnimationFrame(raf); raf = null;
+  brain = new DishBrain({ inputSize: 8, outputSize: 4, hiddenSize: 20, lr: 0.025, gamma: 0.96,
+    epsilon: 1, epsilonMin: 0.06, epsilonDecay: 0.999, seed: Date.now() % 100000 });
+  dopamine = new DopamineSystem(); destroyed = 0; hitTaken = 0; escaped = 0;
+  bullets = []; enemies = []; shootTimer = 0;
+  ship.x = W/2 - 20; ship.cooldown = 0; lastTime = 0;
+  running = true; raf = requestAnimationFrame(loop);
+};
+</script>
+</body>
+</html>

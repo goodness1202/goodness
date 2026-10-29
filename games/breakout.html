@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Breakout · Level 2 — Dopamine Games</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="shell">
+  <a href="index.html" class="back">⟵ Dopamine Games</a>
+  <div class="title"><h1>Breakout</h1><span class="level">Level 2 — keep the ball alive, clear the wall</span></div>
+</header>
+<main class="game-page">
+  <div class="playfield">
+    <canvas id="game" width="640" height="640"></canvas>
+    <canvas id="dish" width="220" height="640"></canvas>
+  </div>
+  <div class="hud">
+    <div class="dopamine-row">
+      <span class="label">DOPAMINE</span>
+      <div class="bar"><div class="fill" id="barFill"></div></div>
+      <span id="dopamineText" class="value">0.50</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label">Bricks</span><span id="statBricks" class="value">0</span></div>
+      <div class="stat"><span class="label">Misses</span><span id="statMiss" class="value">0</span></div>
+      <div class="stat"><span class="label">Level</span><span id="statLevel" class="value">1</span></div>
+      <div class="stat"><span class="label">Epsilon</span><span id="statEps" class="value">1.00</span></div>
+    </div>
+  </div>
+  <div class="controls">
+    <button id="btnStart">Start training</button>
+    <button id="btnPause">Pause</button>
+    <button id="btnReset">Reset brain</button>
+    <label class="manual"><input type="checkbox" id="chkManual"> You play (brain watches)</label>
+  </div>
+  <p class="note">The paddle learns to keep the ball alive and aim for bricks. <b>Brick = calm beat (+1)</b>, <b>ball lost = noise (−1)</b>. Small paddle contacts give a tiny bonus. Levels get faster as the wall clears.</p>
+</main>
+<script src="shared/audio.js"></script>
+<script src="shared/brain.js"></script>
+<script src="shared/dish.js"></script>
+<script>
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const dish = new NeuronDish(document.getElementById('dish'));
+const audio = new DopamineAudio();
+const dopamine = new DopamineSystem();
+const brain = new DishBrain({ inputSize: 8, outputSize: 3, hiddenSize: 18, lr: 0.025, gamma: 0.97,
+  epsilon: 1, epsilonMin: 0.04, epsilonDecay: 0.9993, seed: 21 });
+
+const W = 640, H = 640;
+let pad = { w: 90, h: 14, x: W/2 - 45, y: H - 30 };
+let ball = { x: W/2, y: 0, vx: 0, vy: 0, r: 5 };
+let bricks = [];
+let level = 1, score = 0, hits = 0, misses = 0;
+let running = false, manual = false, manAction = 1;
+const ACT_L = 0, ACT_STAY = 1, ACT_R = 2;
+let lastTime = 0, raf = null;
+
+function newBricks() {
+  bricks = [];
+  const cols = 10, rows = 6, bw = 56, bh = 18, gap = 6;
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      bricks.push({ x: 36 + c * (bw + gap), y: 52 + r * (bh + gap), w: bw, h: bh, alive: true });
+}
+newBricks();
+
+function resetBall() {
+  ball.x = pad.x + pad.w / 2;
+  ball.y = pad.y - ball.r - 1;
+  const s = Math.random() < 0.5 ? -1 : 1;
+  ball.vx = s * (4.2 + level * 0.35);
+  ball.vy = -(5 + level * 0.45);
+}
+
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function norm(v, a, b) { return (v - a) / (b - a) * 2 - 1; }
+
+function getState() {
+  let nb = null, nbDist = 1e9;
+  for (const b of bricks) {
+    if (!b.alive) continue;
+    if (ball.vy < 0 && ball.x > b.x && ball.x < b.x + b.w && b.y < ball.y) {
+      const d = ball.y - b.y;
+      if (d < nbDist) { nbDist = d; nb = b; }
+    }
+  }
+  return [ norm(ball.x, 0, W), norm(ball.y, 0, H), norm(ball.vx, -14, 14), norm(ball.vy, -14, 14),
+           norm(pad.x + pad.w/2, 0, W),
+           nb ? norm(nb.x + nb.w/2, 0, W) : -1,
+           nb ? norm(nb.y + nb.h/2, 0, H) : -1,
+           (bricks.filter(b => b.alive).length) / (10 * 6) * 2 - 1 ];
+}
+
+function applyAction(a) {
+  const spd = 8;
+  if (a === ACT_L) pad.x -= spd;
+  else if (a === ACT_R) pad.x += spd;
+  pad.x = clamp(pad.x, 0, W - pad.w);
+}
+
+function step() {
+  const s = getState();
+  const a = manual ? manAction : brain.act(s, manual ? 0 : brain.epsilon);
+  if (!manual) applyAction(a); else applyAction(manAction);
+
+  ball.x += ball.vx; ball.y += ball.vy;
+  let reward = 0;
+
+  if (ball.x - ball.r < 0) { ball.x = ball.r; ball.vx *= -1; }
+  if (ball.x + ball.r > W) { ball.x = W - ball.r; ball.vx *= -1; }
+  if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy *= -1; }
+
+  if (ball.vy > 0 && ball.x > pad.x && ball.x < pad.x + pad.w &&
+      ball.y + ball.r > pad.y && ball.y - ball.r < pad.y + pad.h) {
+    ball.y = pad.y - ball.r;
+    ball.vy *= -1;
+    const hit = (ball.x - (pad.x + pad.w/2)) / (pad.w/2);
+    ball.vx += hit * 3;
+    reward += 0.05; hits++;
+    dopamine.hit(); audio.playHit(); dish.hit();
+  }
+
+  for (const b of bricks) {
+    if (!b.alive) continue;
+    if (ball.x > b.x && ball.x < b.x + b.w && ball.y > b.y && ball.y < b.y + b.h) {
+      b.alive = false; score++; reward += 1; hits++;
+      dopamine.hit(); audio.playHit(); dish.hit();
+      const dx = Math.min(ball.x - b.x, b.x + b.w - ball.x);
+      const dy = Math.min(ball.y - b.y, b.y + b.h - ball.y);
+      if (dx < dy) ball.vx *= -1; else ball.vy *= -1;
+      break;
+    }
+  }
+
+  if (ball.y > H) {
+    reward = -1; misses++;
+    dopamine.miss(); audio.playMiss(); dish.miss();
+    resetBall();
+  }
+
+  if (bricks.every(b => !b.alive)) {
+    level++; newBricks(); resetBall();
+    ball.vx *= 1.12; ball.vy *= 1.12;
+  }
+
+  const s2 = getState();
+  if (!manual) brain.remember(s, a, reward, s2, false);
+  else brain.remember(s, manAction, reward, s2, false);
+}
+
+const keys = {};
+window.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') keys.l = true; if (e.key === 'ArrowRight') keys.r = true; });
+window.addEventListener('keyup', e => { if (e.key === 'ArrowLeft') keys.l = false; if (e.key === 'ArrowRight') keys.r = false; });
+window.addEventListener('pointerdown', () => audio.boot());
+
+function update() {
+  if (!running) return;
+  for (let i = 0; i < 4; i++) {
+    if (manual) manAction = keys.l ? ACT_L : (keys.r ? ACT_R : ACT_STAY);
+    step();
+  }
+  if (brain.memory.length >= brain.minMemory) { brain.trainBatch(); brain.trainBatch(); }
+  brain.decayEpsilon();
+}
+
+function lerpColor(a, b, t) {
+  const parse = c => ({ r: parseInt(c.slice(1, 3), 16), g: parseInt(c.slice(3, 5), 16), b: parseInt(c.slice(5, 7), 16) });
+  const ca = parse(a), cb = parse(b);
+  return `rgb(${Math.round(ca.r + (cb.r - ca.r) * t)}, ${Math.round(ca.g + (cb.g - ca.g) * t)}, ${Math.round(ca.b + (cb.b - ca.b) * t)})`;
+}
+
+function draw() {
+  ctx.fillStyle = '#0b1021'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#22d3ee'; ctx.fillRect(pad.x, pad.y, pad.w, pad.h);
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
+  for (const b of bricks) {
+    if (!b.alive) continue;
+    ctx.fillStyle = `hsl(${200 + (b.y / H) * 140}, 70%, 55%)`;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+  }
+  dish.draw(dopamine.tone);
+}
+
+function hud() {
+  document.getElementById('barFill').style.width = (dopamine.level * 100) + '%';
+  document.getElementById('barFill').style.background = lerpColor('#f87171', '#4ade80', dopamine.level);
+  document.getElementById('dopamineText').textContent = dopamine.level.toFixed(2);
+  document.getElementById('statBricks').textContent = score;
+  document.getElementById('statMiss').textContent = misses;
+  document.getElementById('statLevel').textContent = level;
+  document.getElementById('statEps').textContent = brain.epsilon.toFixed(2);
+}
+
+function loop(now) {
+  if (!lastTime) lastTime = now;
+  update(); draw(); hud();
+  raf = requestAnimationFrame(loop);
+}
+
+document.getElementById('btnStart').onclick = () => { audio.boot(); running = true; lastTime = 0; if (!raf) raf = requestAnimationFrame(loop); };
+document.getElementById('btnPause').onclick = () => { running = false; if (raf) cancelAnimationFrame(raf); raf = null; };
+document.getElementById('btnReset').onclick = () => {
+  running = false; if (raf) cancelAnimationFrame(raf); raf = null;
+  brain = new DishBrain({ inputSize: 8, outputSize: 3, hiddenSize: 18, lr: 0.025, gamma: 0.97,
+    epsilon: 1, epsilonMin: 0.04, epsilonDecay: 0.9993, seed: Date.now() % 100000 });
+  dopamine = new DopamineSystem(); level = 1; score = 0; hits = 0; misses = 0;
+  newBricks(); resetBall(); pad.x = W/2 - 45; lastTime = 0;
+  running = true; raf = requestAnimationFrame(loop);
+};
+</script>
+</body>
+</html>

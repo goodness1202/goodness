@@ -1,0 +1,95 @@
+/* shared shell style for the dopamine games */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0b1021;
+  --panel: #131a30;
+  --neon: #22d3ee;
+  --pink: #f472b6;
+  --green: #4ade80;
+  --red: #f87171;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+}
+html, body { height: 100%; background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, sans-serif; }
+a { color: var(--neon); text-decoration: none; }
+a:hover { text-decoration: underline; color: #81e6d9; }
+
+.shell {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 20px; border-bottom: 1px solid #1e2a4a;
+  background: #0f172a;
+}
+.back { color: var(--muted); font-weight: 600; font-size: 0.95rem; }
+.back:hover { color: var(--neon); }
+.title h1 { font-size: 1.25rem; letter-spacing: 0.03em; }
+.level { color: var(--muted); font-size: 0.85rem; margin-top: 2px; display: block; }
+
+.game-page { padding: 20px; max-width: 1100px; margin: 0 auto; }
+.playfield {
+  display: flex; gap: 16px; align-items: flex-start;
+  background: var(--panel); border: 1px solid #1e2a4a; border-radius: 12px;
+  padding: 14px;
+}
+canvas { background: #070b16; border-radius: 8px; display: block;
+  box-shadow: 0 0 28px rgba(0, 0, 0, 0.45); }
+
+.hud { margin-top: 14px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.dopamine-row {
+  display: flex; align-items: center; gap: 10px;
+  background: #0f172a; border: 1px solid #1e2a4a; border-radius: 10px;
+  padding: 8px 14px;
+}
+.bar { width: 150px; height: 10px; background: #1e2a4a; border-radius: 6px; overflow: hidden; }
+.fill { height: 100%; width: 50%; border-radius: 6px; transition: width 0.15s, background 0.3s; }
+.label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 700; }
+.value { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.stats { display: flex; gap: 20px; }
+.stat { font-size: 0.85rem; line-height: 1.4; }
+.stat .label { display: block; font-size: 0.66rem; color: var(--muted); }
+
+.controls { margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+button {
+  background: var(--panel); border: 1px solid #1e2a4a; color: var(--text);
+  padding: 8px 14px; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 0.9rem;
+}
+button:hover { border-color: var(--neon); color: var(--neon); }
+button:active { transform: translateY(1px); }
+.manual { display: flex; align-items: center; gap: 6px; margin-left: 16px; font-size: 0.85rem; color: var(--muted); }
+.note { margin-top: 10px; color: var(--muted); font-size: 0.86rem; line-height: 1.55; max-width: 720px; }
+
+/* --- hub page --- */
+.hero {
+  padding: 34px 20px; text-align: center; border-bottom: 1px solid #1e2a4a;
+  background: #0f172a;
+}
+.hero h1 { font-size: 1.7rem; letter-spacing: 0.02em; margin-bottom: 8px; }
+.hero p { color: var(--muted); max-width: 660px; margin: 0 auto; font-size: 1rem; line-height: 1.6; }
+.grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 16px; padding: 26px 20px; max-width: 980px; margin: 0 auto;
+}
+.card {
+  background: var(--panel); border: 1px solid #1e2a4a; border-radius: 12px;
+  padding: 20px; display: flex; flex-direction: column; gap: 10px;
+}
+.level-badge {
+  display: inline-block; font-size: 0.7rem; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--neon); font-weight: 800; border: 1px solid var(--neon);
+  padding: 2px 8px; border-radius: 6px; width: fit-content;
+}
+.card h2 { font-size: 1.15rem; margin-bottom: 2px; }
+.card p { color: var(--muted); font-size: 0.9rem; line-height: 1.55; }
+.btn {
+  display: inline-block; margin-top: auto; background: var(--neon); color: #05101a;
+  border: none; padding: 10px 14px; border-radius: 8px; font-weight: 800; text-decoration: none;
+}
+.btn:hover { background: #81e6d9; }
+
+.how {
+  padding: 26px 20px; max-width: 740px; margin: 0 auto; color: var(--muted);
+  font-size: 0.92rem; line-height: 1.75;
+}
+.how h3 { color: var(--text); margin: 16px 0 6px; font-size: 1rem; }
+.how ul { margin-left: 20px; color: var(--muted); }
+.how li { margin-bottom: 4px; }
